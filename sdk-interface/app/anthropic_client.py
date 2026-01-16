@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -18,6 +19,8 @@ from app.models import (
     Usage,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class AnthropicClient:
     """Client for interacting with Anthropic API."""
@@ -37,21 +40,73 @@ class AnthropicClient:
         Returns:
             List of ModelInfo objects in OpenAI-compatible format
         """
-        response = await self.async_client.models.list(limit=limit)
+        try:
+            # Try to use the models API if available
+            if hasattr(self.async_client, 'models'):
+                response = await self.async_client.models.list(limit=limit)
+                
+                # Convert Anthropic format to OpenAI-compatible format
+                models = []
+                for model in response.data:
+                    # Parse ISO 8601 datetime and convert to Unix timestamp
+                    try:
+                        created_at_str = str(model.created_at)
+                        # Handle both datetime objects and strings
+                        if 'T' in created_at_str or '-' in created_at_str:
+                            created_timestamp = int(datetime.fromisoformat(created_at_str.replace('Z', '+00:00')).timestamp())
+                        else:
+                            # If it's already a timestamp
+                            created_timestamp = int(created_at_str)
+                    except (ValueError, AttributeError):
+                        # Fallback to current time if parsing fails
+                        created_timestamp = int(time.time())
+                    
+                    models.append(ModelInfo(
+                        id=model.id,
+                        created=created_timestamp,
+                        owned_by="anthropic"
+                    ))
+                
+                logger.info(f"Successfully fetched {len(models)} models from Anthropic API")
+                return models
+            else:
+                logger.warning("Models API not available in this SDK version, using hardcoded list")
+                return self._get_hardcoded_models()
+        except Exception as e:
+            logger.warning(f"Failed to fetch models from Anthropic API: {e}, using hardcoded list")
+            return self._get_hardcoded_models()
+    
+    @staticmethod
+    def _get_hardcoded_models() -> list[ModelInfo]:
+        """
+        Return a hardcoded list of available models as fallback.
         
-        # Convert Anthropic format to OpenAI-compatible format
-        models = []
-        for model in response.data:
-            # Parse ISO 8601 datetime and convert to Unix timestamp
-            created_timestamp = int(datetime.fromisoformat(model.created_at.replace('Z', '+00:00')).timestamp())
-            
-            models.append(ModelInfo(
-                id=model.id,
-                created=created_timestamp,
+        Returns:
+            List of ModelInfo objects for known Anthropic models
+        """
+        base_timestamp = int(time.time())
+        
+        # Hardcoded list of known Anthropic models (updated from actual API)
+        model_ids = [
+            "claude-opus-4-5-20251101",
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1-20250805",
+            "claude-opus-4-20250514",
+            "claude-sonnet-4-20250514",
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-20241022",
+            "claude-3-haiku-20240307",
+        ]
+        
+        return [
+            ModelInfo(
+                id=model_id,
+                created=base_timestamp,
                 owned_by="anthropic"
-            ))
-        
-        return models
+            )
+            for model_id in model_ids
+        ]
     
     async def get_model(self, model_id: str) -> ModelInfo:
         """
@@ -63,16 +118,33 @@ class AnthropicClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
-        response = await self.async_client.models.retrieve(model_id)
-        
-        # Parse ISO 8601 datetime and convert to Unix timestamp
-        created_timestamp = int(datetime.fromisoformat(response.created_at.replace('Z', '+00:00')).timestamp())
-        
-        return ModelInfo(
-            id=response.id,
-            created=created_timestamp,
-            owned_by="anthropic"
-        )
+        try:
+            if hasattr(self.async_client, 'models'):
+                response = await self.async_client.models.retrieve(model_id)
+                
+                # Parse ISO 8601 datetime and convert to Unix timestamp
+                created_timestamp = int(datetime.fromisoformat(response.created_at.replace('Z', '+00:00')).timestamp())
+                
+                return ModelInfo(
+                    id=response.id,
+                    created=created_timestamp,
+                    owned_by="anthropic"
+                )
+            else:
+                # Fallback: return model info from hardcoded list
+                hardcoded_models = self._get_hardcoded_models()
+                for model in hardcoded_models:
+                    if model.id == model_id:
+                        return model
+                raise ValueError(f"Model {model_id} not found")
+        except Exception as e:
+            logger.warning(f"Failed to fetch model {model_id} from API: {e}")
+            # Fallback: return model info from hardcoded list
+            hardcoded_models = self._get_hardcoded_models()
+            for model in hardcoded_models:
+                if model.id == model_id:
+                    return model
+            raise ValueError(f"Model {model_id} not found")
     
     @staticmethod
     def _convert_messages(messages: list[ChatMessage]) -> tuple[str | None, list[dict[str, str]]]:
@@ -131,6 +203,15 @@ class AnthropicClient:
                 block.text for block in response.content if hasattr(block, "text")
             )
         
+        # Map Anthropic stop_reason to OpenAI finish_reason
+        stop_reason_str = str(response.stop_reason) if response.stop_reason else "end_turn"
+        if stop_reason_str == "max_tokens":
+            mapped_finish_reason: str = "length"
+        elif stop_reason_str in ("end_turn", "stop_sequence"):
+            mapped_finish_reason = "stop"
+        else:
+            mapped_finish_reason = "stop"
+        
         return ChatCompletionResponse(
             id=completion_id,
             created=created,
@@ -139,7 +220,7 @@ class AnthropicClient:
                 ChatCompletionChoice(
                     index=0,
                     message=ChatMessage(role="assistant", content=content),
-                    finish_reason="stop" if response.stop_reason == "end_turn" else response.stop_reason
+                    finish_reason=mapped_finish_reason  # type: ignore
                 )
             ],
             usage=Usage(
