@@ -35,16 +35,17 @@ else:
     logger.warning("No API keys configured - authentication is DISABLED")
 
 
-AVAILABLE_MODELS = [
-    "claude-sonnet-4-5-20250929",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-5-20251101",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
-]
+# Cache for model validation (fetched from Anthropic API on first request)
+_model_cache: set[str] | None = None
+
+
+async def get_available_models() -> set[str]:
+    """Get available model IDs from Anthropic API (cached)."""
+    global _model_cache
+    if _model_cache is None:
+        models = await anthropic_client.list_models()
+        _model_cache = {model.id for model in models}
+    return _model_cache
 
 
 @app.get("/")
@@ -59,19 +60,32 @@ async def root() -> dict[str, str]:
 
 @app.get("/v1/models")
 async def list_models() -> ModelsResponse:
-    """List available models in OpenAI format."""
-    created = int(time.time())
-    models = [
-        ModelInfo(
-            id=model_id,
-            created=created,
-            owned_by="anthropic"
+    """List available models from Anthropic API in OpenAI format."""
+    try:
+        models = await anthropic_client.list_models()
+        logger.info(f"Fetched {len(models)} models from Anthropic API")
+        return ModelsResponse(data=models)
+    except Exception as e:
+        logger.error(f"Error fetching models from Anthropic API: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch models from Anthropic API: {str(e)}"
         )
-        for model_id in AVAILABLE_MODELS
-    ]
-    
-    logger.info(f"Listing {len(models)} available models")
-    return ModelsResponse(data=models)
+
+
+@app.get("/v1/models/{model_id}")
+async def get_model(model_id: str) -> ModelInfo:
+    """Get a specific model by ID from Anthropic API in OpenAI format."""
+    try:
+        model = await anthropic_client.get_model(model_id)
+        logger.info(f"Fetched model: {model_id}")
+        return model
+    except Exception as e:
+        logger.error(f"Error fetching model {model_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model {model_id} not found: {str(e)}"
+        )
 
 
 @app.post("/v1/chat/completions", response_model=None)
@@ -88,12 +102,13 @@ async def create_chat_completion(
         f"messages={len(request.messages)}, stream={request.stream}"
     )
     
-    # Validate model
-    if request.model not in AVAILABLE_MODELS:
+    # Validate model against Anthropic API
+    available_models = await get_available_models()
+    if request.model not in available_models:
         logger.warning(f"Unknown model requested: {request.model}")
         raise HTTPException(
             status_code=400,
-            detail=f"Model {request.model} not found. Available models: {', '.join(AVAILABLE_MODELS)}"
+            detail=f"Model {request.model} not found. Use /v1/models to see available models."
         )
     
     try:

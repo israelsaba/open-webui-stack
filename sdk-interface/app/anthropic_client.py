@@ -1,5 +1,6 @@
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 from anthropic import Anthropic, AsyncAnthropic
@@ -13,6 +14,7 @@ from app.models import (
     ChatCompletionResponse,
     ChatCompletionStreamChoice,
     ChatMessage,
+    ModelInfo,
     Usage,
 )
 
@@ -24,6 +26,53 @@ class AnthropicClient:
         api_key = settings.anthropic_api_key.get_secret_value()
         self.client = Anthropic(api_key=api_key)
         self.async_client = AsyncAnthropic(api_key=api_key)
+    
+    async def list_models(self, limit: int = 100) -> list[ModelInfo]:
+        """
+        Fetch available models from Anthropic API.
+        
+        Args:
+            limit: Maximum number of models to fetch (default: 100)
+        
+        Returns:
+            List of ModelInfo objects in OpenAI-compatible format
+        """
+        response = await self.async_client.models.list(limit=limit)
+        
+        # Convert Anthropic format to OpenAI-compatible format
+        models = []
+        for model in response.data:
+            # Parse ISO 8601 datetime and convert to Unix timestamp
+            created_timestamp = int(datetime.fromisoformat(model.created_at.replace('Z', '+00:00')).timestamp())
+            
+            models.append(ModelInfo(
+                id=model.id,
+                created=created_timestamp,
+                owned_by="anthropic"
+            ))
+        
+        return models
+    
+    async def get_model(self, model_id: str) -> ModelInfo:
+        """
+        Fetch a specific model by ID from Anthropic API.
+        
+        Args:
+            model_id: The model identifier or alias
+        
+        Returns:
+            ModelInfo object in OpenAI-compatible format
+        """
+        response = await self.async_client.models.retrieve(model_id)
+        
+        # Parse ISO 8601 datetime and convert to Unix timestamp
+        created_timestamp = int(datetime.fromisoformat(response.created_at.replace('Z', '+00:00')).timestamp())
+        
+        return ModelInfo(
+            id=response.id,
+            created=created_timestamp,
+            owned_by="anthropic"
+        )
     
     @staticmethod
     def _convert_messages(messages: list[ChatMessage]) -> tuple[str | None, list[dict[str, str]]]:
