@@ -1,0 +1,73 @@
+name: open-webui-suite
+
+networks:
+  open-webui-net:
+    name: open-webui-net
+    driver: bridge
+
+volumes:
+  open-webui:
+    external: true
+
+services:
+  sdk-interface:
+    build:
+      context: .
+      dockerfile: ./sdk-interface/Dockerfile
+    container_name: sdk-interface
+    volumes:
+      - ./sdk-interface:/sdk-interface/app
+    env_file:
+      - path: ./sdk-interface/.env
+        required: true
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8060"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      PYTHONPATH: "/app"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8060/health')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - open-webui-net
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "8090:8080"
+    env_file:
+      - .env
+    environment:
+      AUDIO_STT_ENGINE: "openai"
+      RAG_EMBEDDING_ENGINE: "openai"
+    volumes:
+      - open-webui:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+    depends_on:
+      sdk-interface:
+        condition: service_healthy
+    networks:
+      - open-webui-net
+
+  watchtower:
+    image: nickfedor/watchtower:latest
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_SCHEDULE: "0 0 2 * * *" # 2 AM daily
+    command: open-webui
+    restart: unless-stopped
+    depends_on:
+      - open-webui
+    networks:
+      - open-webui-net

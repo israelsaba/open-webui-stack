@@ -1,0 +1,31 @@
+services:
+  anthropic-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: anthropic-openai-bridge
+    ports:
+      - "127.0.0.1:8060:8060"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      HOST: 0.0.0.0
+      PORT: 8060
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      PYTHONPATH: "/app"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8060/health')",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
