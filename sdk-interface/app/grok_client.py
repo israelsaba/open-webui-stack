@@ -24,6 +24,7 @@ class GrokClient:
 
     def __init__(self) -> None:
         if settings.grok_api_key:
+            logger.info("Initializing Grok client with API key")
             self.client = AsyncOpenAI(
                 api_key=settings.grok_api_key.get_secret_value(),
                 base_url="https://api.x.ai/v1"
@@ -44,7 +45,10 @@ class GrokClient:
             List of ModelInfo objects in OpenAI-compatible format
         """
         if not self.available:
-            return []
+            # Return hardcoded models even if API key is not configured
+            # This allows the models to be "seen" by the system, but attempts to use them will fail
+            logger.info("Grok API key not configured, returning hardcoded models list")
+            return self._get_hardcoded_models()
 
         try:
             response = await self.client.models.list()
@@ -101,8 +105,13 @@ class GrokClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
+        # Check hardcoded models first or if API not available
         if not self.available:
-            raise ValueError("Grok API key not configured")
+             hardcoded_models = self._get_hardcoded_models()
+             for model in hardcoded_models:
+                 if model.id == model_id:
+                     return model
+             raise ValueError("Grok API key not configured and model not found in hardcoded list")
 
         try:
             model = await self.client.models.retrieve(model_id)
