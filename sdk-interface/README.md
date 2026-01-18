@@ -1,34 +1,35 @@
-# Anthropic to OpenAI API Bridge
+# Anthropic & Gemini to OpenAI API Bridge
 
-A dockerized FastAPI application that exposes Anthropic's Claude models through an OpenAI-compatible API. This allows you to use Claude models with any application that supports the OpenAI API format, including Open WebUI.
+A dockerized FastAPI application that exposes Anthropic's Claude and Google's Gemini models through an OpenAI-compatible API. This allows you to use these models with any application that supports the OpenAI API format, including Open WebUI.
 
 ## Features
 
 - **OpenAI-Compatible API**: Implements `/v1/models` and `/v1/chat/completions` endpoints
+- **Multi-Provider Support**: Supports both Anthropic (Claude) and Google (Gemini) models
 - **Streaming Support**: Full support for streaming responses
 - **Localhost Only**: Configured to only be accessible from localhost for security
-- **Strongly Typed**: Built with Python 3.12 using modern type hints (no `Any` types)
+- **Strongly Typed**: Built with Python 3.12+ using modern type hints (no `Any` types)
 - **Docker Ready**: Includes Dockerfile and docker-compose for easy deployment
 - **Health Checks**: Built-in health monitoring
 
 ## Supported Models
 
-### Latest Models (Claude 4.5)
+### Anthropic
 - claude-sonnet-4-5-20250929 (Claude Sonnet 4.5)
 - claude-haiku-4-5-20251001 (Claude Haiku 4.5)
 - claude-opus-4-5-20251101 (Claude Opus 4.5)
+- Claude 3.5 & Claude 3 legacy models
 
-### Legacy Models (Claude 3.5 & Claude 3)
-- claude-3-5-sonnet-20241022
-- claude-3-5-haiku-20241022
-- claude-3-opus-20240229
-- claude-3-sonnet-20240229
-- claude-3-haiku-20240307
+### Google Gemini
+- gemini-1.5-pro
+- gemini-1.5-flash
+- gemini-1.0-pro
 
 ## Prerequisites
 
 - Docker and Docker Compose
-- Anthropic API key
+- Anthropic API key (optional if using Gemini only)
+- Google Gemini API key (optional if using Anthropic only)
 
 ## Setup
 
@@ -39,15 +40,17 @@ A dockerized FastAPI application that exposes Anthropic's Claude models through 
    cp .env.example .env
    ```
 
-3. **Edit `.env` and add your Anthropic API key**:
+3. **Edit `.env` and add your API keys**:
    ```
    ANTHROPIC_API_KEY=sk-ant-...
+   GOOGLE_API_KEY=AIzaSy...
    ```
 
 4. **Build and run with Docker Compose**:
    ```bash
-   docker-compose up -d
+   docker-compose up -d --build
    ```
+   *Note: Use `--build` if updating from a previous version to install new dependencies.*
 
 5. **Verify the service is running**:
    ```bash
@@ -66,7 +69,7 @@ curl http://localhost:8000/v1/models
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "gemini-1.5-pro",
     "messages": [
       {"role": "user", "content": "Hello!"}
     ]
@@ -131,6 +134,7 @@ If running Open WebUI in Docker and this service on your host, use:
 │   ├── config.py           # Configuration with Pydantic Settings
 │   ├── models.py           # Request/Response models
 │   ├── anthropic_client.py # Anthropic API client
+│   ├── gemini_client.py    # Gemini API client
 │   └── main.py            # FastAPI application
 ├── Dockerfile
 ├── docker-compose.yml
@@ -144,7 +148,7 @@ If running Open WebUI in Docker and this service on your host, use:
 
 - The service is configured to only bind to `127.0.0.1` (localhost) in docker-compose
 - Never commit your `.env` file with real API keys
-- The Anthropic API key is stored as a Pydantic `SecretStr` for additional security
+- The API keys are stored as Pydantic `SecretStr` for additional security
 
 ## Logs
 
@@ -158,14 +162,6 @@ docker-compose logs -f
 ```bash
 docker-compose down
 ```
-
-## Troubleshooting
-
-**Connection refused**: Ensure the service is running with `docker-compose ps`
-
-**Model not found**: Check that you're using one of the supported model IDs
-
-**API key error**: Verify your `.env` file contains a valid `ANTHROPIC_API_KEY`
 
 ## License
 
