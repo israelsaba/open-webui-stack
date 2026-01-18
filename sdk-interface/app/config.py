@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     
     anthropic_api_key: SecretStr
     google_api_key: SecretStr | None = None
+    grok_api_key: SecretStr | None = None
     api_keys: str = ""  # Format: username1:token1;username2:token2;...
     host: str = "0.0.0.0"
     port: int = 8000

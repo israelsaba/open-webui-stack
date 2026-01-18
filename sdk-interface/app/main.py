@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from app.anthropic_client import anthropic_client
 from app.gemini_client import gemini_client
+from app.grok_client import grok_client
 from app.auth import BearerTokenMiddleware, parse_api_keys
 from app.config import settings
 from app.models import (
@@ -22,9 +23,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Anthropic & Gemini to OpenAI API Bridge",
-    description="OpenAI-compatible API for Anthropic and Gemini models",
-    version="1.1.0"
+    title="Anthropic, Gemini & Grok to OpenAI API Bridge",
+    description="OpenAI-compatible API for Anthropic, Gemini, and Grok models",
+    version="1.2.0"
 )
 
 # Add bearer token authentication middleware
@@ -46,7 +47,10 @@ async def get_available_models() -> set[str]:
     if _model_cache is None:
         anthropic_models = await anthropic_client.list_models()
         gemini_models = await gemini_client.list_models()
-        _model_cache = {model.id for model in anthropic_models} | {model.id for model in gemini_models}
+        grok_models = await grok_client.list_models()
+        _model_cache = {model.id for model in anthropic_models} | \
+                       {model.id for model in gemini_models} | \
+                       {model.id for model in grok_models}
     return _model_cache
 
 
@@ -54,7 +58,7 @@ async def get_available_models() -> set[str]:
 async def root() -> dict[str, str]:
     """Root endpoint with API information."""
     return {
-        "message": "Anthropic & Gemini to OpenAI API Bridge",
+        "message": "Anthropic, Gemini & Grok to OpenAI API Bridge",
         "docs": "/docs",
         "models": "/v1/models"
     }
@@ -62,13 +66,17 @@ async def root() -> dict[str, str]:
 
 @app.get("/v1/models")
 async def list_models() -> ModelsResponse:
-    """List available models from Anthropic and Gemini APIs in OpenAI format."""
+    """List available models from all supported APIs in OpenAI format."""
     try:
         anthropic_models = await anthropic_client.list_models()
         gemini_models = await gemini_client.list_models()
+        grok_models = await grok_client.list_models()
         
-        all_models = anthropic_models + gemini_models
-        logger.info(f"Fetched {len(all_models)} models ({len(anthropic_models)} Anthropic, {len(gemini_models)} Gemini)")
+        all_models = anthropic_models + gemini_models + grok_models
+        logger.info(f"Fetched {len(all_models)} models "
+                   f"({len(anthropic_models)} Anthropic, "
+                   f"{len(gemini_models)} Gemini, "
+                   f"{len(grok_models)} Grok)")
         return ModelsResponse(data=all_models)
     except Exception as e:
         logger.error(f"Error fetching models: {e}", exc_info=True)
@@ -80,20 +88,19 @@ async def list_models() -> ModelsResponse:
 
 @app.get("/v1/models/{model_id}")
 async def get_model(model_id: str) -> ModelInfo:
-    """Get a specific model by ID from Anthropic or Gemini API in OpenAI format."""
+    """Get a specific model by ID from any provider in OpenAI format."""
     try:
-        # Check cache or prefixes to decide where to look first if possible,
-        # but for now we'll just try Anthropic then Gemini
+        # Check cache or prefixes to decide where to look first if possible
         try:
-            model = await anthropic_client.get_model(model_id)
-            return model
+            return await anthropic_client.get_model(model_id)
         except ValueError:
-            # Try Gemini if Anthropic fails
             try:
-                model = await gemini_client.get_model(model_id)
-                return model
+                return await gemini_client.get_model(model_id)
             except ValueError:
-                raise ValueError(f"Model {model_id} not found in any provider")
+                try:
+                    return await grok_client.get_model(model_id)
+                except ValueError:
+                    raise ValueError(f"Model {model_id} not found in any provider")
 
     except ValueError as e:
         logger.warning(f"Model {model_id} not found: {e}")
@@ -114,7 +121,7 @@ async def create_chat_completion(
     request: ChatCompletionRequest
 ) -> ChatCompletionResponse | StreamingResponse:
     """
-    Create a chat completion using Anthropic or Gemini API.
+    Create a chat completion using Anthropic, Gemini, or Grok API.
     
     Supports both streaming and non-streaming responses.
     """
@@ -126,9 +133,6 @@ async def create_chat_completion(
     # Validate model
     available_models = await get_available_models()
     if request.model not in available_models:
-        # Some clients might send prefixes or slightly different IDs
-        # So we might want to be lenient, but strictly speaking validation is good.
-        # Let's re-fetch once to be sure we haven't missed new models
         global _model_cache
         _model_cache = None
         available_models = await get_available_models()
@@ -141,8 +145,13 @@ async def create_chat_completion(
             )
     
     # Determine provider
-    is_gemini = "gemini" in request.model.lower()
-    client = gemini_client if is_gemini else anthropic_client
+    model_lower = request.model.lower()
+    if "gemini" in model_lower:
+        client = gemini_client
+    elif "grok" in model_lower:
+        client = grok_client
+    else:
+        client = anthropic_client
     
     try:
         if request.stream:
@@ -165,12 +174,7 @@ async def create_chat_completion(
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
-    status = "healthy"
-    
-    # Optional: Check if clients are configured
-    # if not anthropic_client.client.api_key: status = "degraded"
-    
-    return {"status": status}
+    return {"status": "healthy"}
 
 
 if __name__ == "__main__":
