@@ -170,8 +170,31 @@ async def create_chat_completion(
                 detail=f"Model {request.model} not found. Use /v1/models to see available models."
             )
     
-    # Determine provider
+    # Check if this is a deep research model (route to deep research endpoint)
     model_lower = request.model.lower()
+    if "deep-research" in model_lower:
+        # Route to deep research with the base model
+        base_model = request.model.replace("-deep-research", "")
+        research_request = ChatCompletionRequest(
+            model=base_model,
+            messages=request.messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stream=True,  # Deep research always streams
+            top_p=request.top_p,
+            stop=request.stop,
+            reasoning_effort=request.reasoning_effort,
+        )
+        try:
+            return StreamingResponse(
+                create_deep_research_stream(research_request),
+                media_type="text/event-stream"
+            )
+        except Exception as e:
+            logger.error(f"Error in deep research: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    # Determine provider for regular models
     if "gemini" in model_lower:
         client = gemini_client
     elif "grok" in model_lower:

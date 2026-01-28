@@ -114,6 +114,8 @@ class GeminiClient:
         base_timestamp = int(time.time())
         
         model_ids = [
+            # Deep Research models (virtual models that use deep research endpoint)
+            "gemini-2.0-flash-thinking-deep-research",
             # Gemini 2.0 models (experimental)
             "gemini-2.0-flash-exp",
             "gemini-2.0-flash-thinking-exp-01-21",
