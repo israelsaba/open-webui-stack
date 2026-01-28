@@ -93,7 +93,18 @@ class GeminiClient:
                 )
                 return self._get_hardcoded_models()
             
-            logger.info(f"Successfully fetched {len(models)} models from Gemini API")
+            # Add virtual deep research model if thinking models exist
+            thinking_models = [m for m in models if "thinking" in m.id.lower()]
+            if thinking_models:
+                # Add deep research virtual model based on the newest thinking model
+                models.append(ModelInfo(
+                    id="gemini-2.0-flash-thinking-deep-research",
+                    created=int(time.time()),
+                    owned_by="google"
+                ))
+                logger.info(f"Added virtual deep research model based on available thinking models")
+            
+            logger.info(f"Successfully fetched {len(models)} models from Gemini API (including virtual models)")
             return models[:limit]
         except Exception as e:
             logger.warning(f"Failed to fetch models from Gemini API: {e}, using hardcoded list")
