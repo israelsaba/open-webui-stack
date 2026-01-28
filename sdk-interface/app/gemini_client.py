@@ -337,11 +337,119 @@ class GeminiClient:
                 config=config
             )
             
+            # Track if we're in a thinking block for thinking models
+            in_thinking_block = False
+            thinking_buffer = []
+            
             for chunk in response_stream:
                 # Extract text delta from chunk
                 if hasattr(chunk, 'text') and chunk.text:
                     content_delta = chunk.text
                     
+                    # Check if this is a thinking model (contains "thinking" in model name)
+                    is_thinking_model = "thinking" in request.model.lower()
+                    
+                    if is_thinking_model:
+                        # Parse thinking content from <thinking> tags
+                        if "<thinking>" in content_delta:
+                            in_thinking_block = True
+                            # Extract any text before <thinking>
+                            before_thinking = content_delta.split("<thinking>")[0]
+                            if before_thinking:
+                                response_chunk = ChatCompletionChunk(
+                                    id=completion_id,
+                                    created=created,
+                                    model=request.model,
+                                    choices=[
+                                        ChatCompletionStreamChoice(
+                                            index=0,
+                                            delta={"role": "assistant", "content": before_thinking},
+                                            finish_reason=None
+                                        )
+                                    ]
+                                )
+                                yield f"data: {response_chunk.model_dump_json()}\n\n"
+                            # Start collecting thinking content
+                            after_thinking = content_delta.split("<thinking>")[1] if len(content_delta.split("<thinking>")) > 1 else ""
+                            if "</thinking>" in after_thinking:
+                                thinking_content = after_thinking.split("</thinking>")[0]
+                                in_thinking_block = False
+                                # Send thinking content
+                                response_chunk = ChatCompletionChunk(
+                                    id=completion_id,
+                                    created=created,
+                                    model=request.model,
+                                    choices=[
+                                        ChatCompletionStreamChoice(
+                                            index=0,
+                                            delta={"reasoning_content": thinking_content},
+                                            finish_reason=None
+                                        )
+                                    ]
+                                )
+                                yield f"data: {response_chunk.model_dump_json()}\n\n"
+                                # Send any content after </thinking>
+                                after_closing = after_thinking.split("</thinking>")[1] if len(after_thinking.split("</thinking>")) > 1 else ""
+                                if after_closing:
+                                    response_chunk = ChatCompletionChunk(
+                                        id=completion_id,
+                                        created=created,
+                                        model=request.model,
+                                        choices=[
+                                            ChatCompletionStreamChoice(
+                                                index=0,
+                                                delta={"role": "assistant", "content": after_closing},
+                                                finish_reason=None
+                                            )
+                                        ]
+                                    )
+                                    yield f"data: {response_chunk.model_dump_json()}\n\n"
+                            else:
+                                thinking_buffer.append(after_thinking)
+                            continue
+                        elif "</thinking>" in content_delta and in_thinking_block:
+                            before_closing = content_delta.split("</thinking>")[0]
+                            thinking_buffer.append(before_closing)
+                            thinking_content = "".join(thinking_buffer)
+                            thinking_buffer = []
+                            in_thinking_block = False
+                            # Send accumulated thinking content
+                            response_chunk = ChatCompletionChunk(
+                                id=completion_id,
+                                created=created,
+                                model=request.model,
+                                choices=[
+                                    ChatCompletionStreamChoice(
+                                        index=0,
+                                        delta={"reasoning_content": thinking_content},
+                                        finish_reason=None
+                                    )
+                                ]
+                            )
+                            yield f"data: {response_chunk.model_dump_json()}\n\n"
+                            # Send any content after </thinking>
+                            after_closing = content_delta.split("</thinking>")[1] if len(content_delta.split("</thinking>")) > 1 else ""
+                            if after_closing:
+                                response_chunk = ChatCompletionChunk(
+                                    id=completion_id,
+                                    created=created,
+                                    model=request.model,
+                                    choices=[
+                                        ChatCompletionStreamChoice(
+                                            index=0,
+                                            delta={"role": "assistant", "content": after_closing},
+                                            finish_reason=None
+                                        )
+                                    ]
+                                )
+                                yield f"data: {response_chunk.model_dump_json()}\n\n"
+                            continue
+                        elif in_thinking_block:
+                            # Accumulate thinking content
+                            thinking_buffer.append(content_delta)
+                            continue
+                    
+                    # Regular content (not in thinking block or not a thinking model)
                     response_chunk = ChatCompletionChunk(
                         id=completion_id,
                         created=created,

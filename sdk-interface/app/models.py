@@ -40,6 +40,7 @@ class Usage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    reasoning_tokens: int = 0  # For models with reasoning capabilities
 
 
 class ChatCompletionChoice(BaseModel):
@@ -47,6 +48,10 @@ class ChatCompletionChoice(BaseModel):
     index: int
     message: ChatMessage
     finish_reason: Literal["stop", "length", "content_filter"] | None
+    
+    class Config:
+        # Allow extra fields like reasoning_content
+        extra = "allow"
 
 
 class ChatCompletionResponse(BaseModel):
@@ -62,7 +67,7 @@ class ChatCompletionResponse(BaseModel):
 class ChatCompletionStreamChoice(BaseModel):
     """A single streaming completion choice."""
     index: int
-    delta: dict[str, str]
+    delta: dict[str, str]  # Can include "content", "reasoning_content", "role"
     finish_reason: Literal["stop", "length", "content_filter"] | None = None
 
 

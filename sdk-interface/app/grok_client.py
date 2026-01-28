@@ -234,6 +234,16 @@ class GrokClient:
                 delta = chunk.choices[0].delta
                 finish_reason = chunk.choices[0].finish_reason
                 
+                # Build delta dict with all available content
+                delta_dict = {}
+                if hasattr(delta, "role") and delta.role:
+                    delta_dict["role"] = delta.role
+                if hasattr(delta, "content") and delta.content:
+                    delta_dict["content"] = delta.content
+                # Support reasoning_content if present (for future Grok reasoning models)
+                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                    delta_dict["reasoning_content"] = delta.reasoning_content
+                
                 response_chunk = ChatCompletionChunk(
                     id=chunk.id,
                     created=chunk.created,
@@ -241,10 +251,7 @@ class GrokClient:
                     choices=[
                         ChatCompletionStreamChoice(
                             index=chunk.choices[0].index,
-                            delta={
-                                "role": delta.role if hasattr(delta, "role") and delta.role else None,
-                                "content": delta.content if hasattr(delta, "content") and delta.content else None
-                            },
+                            delta=delta_dict,
                             finish_reason=finish_reason
                         )
                     ]

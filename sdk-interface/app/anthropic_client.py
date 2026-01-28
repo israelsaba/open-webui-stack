@@ -234,7 +234,7 @@ class AnthropicClient:
         self,
         request: ChatCompletionRequest
     ) -> AsyncIterator[str]:
-        """Create a streaming chat completion."""
+        """Create a streaming chat completion with reasoning support."""
         system_message, anthropic_messages = self._convert_messages(request.messages)
         
         # Build kwargs for Anthropic API
@@ -258,7 +258,7 @@ class AnthropicClient:
         
         async with self.async_client.messages.stream(**kwargs) as stream:
             async for event in stream:
-                chunk = self._convert_stream_event(
+                chunk = self._convert_stream_event_new(
                     event, completion_id, created, request.model
                 )
                 if chunk:
@@ -267,13 +267,70 @@ class AnthropicClient:
         yield "data: [DONE]\n\n"
     
     @staticmethod
+    def _convert_stream_event_new(
+        event: Any,
+        completion_id: str,
+        created: int,
+        model: str
+    ) -> ChatCompletionChunk | None:
+        """Convert Anthropic streaming event to OpenAI format with reasoning support."""
+        from anthropic.lib.streaming._types import ThinkingEvent, TextEvent, MessageStopEvent
+        
+        # Handle thinking/reasoning content
+        if isinstance(event, ThinkingEvent):
+            return ChatCompletionChunk(
+                id=completion_id,
+                created=created,
+                model=model,
+                choices=[
+                    ChatCompletionStreamChoice(
+                        index=0,
+                        delta={"reasoning_content": event.thinking},
+                        finish_reason=None
+                    )
+                ]
+            )
+        
+        # Handle regular text content
+        elif isinstance(event, TextEvent):
+            return ChatCompletionChunk(
+                id=completion_id,
+                created=created,
+                model=model,
+                choices=[
+                    ChatCompletionStreamChoice(
+                        index=0,
+                        delta={"role": "assistant", "content": event.text},
+                        finish_reason=None
+                    )
+                ]
+            )
+        
+        # Handle message stop
+        elif isinstance(event, MessageStopEvent):
+            return ChatCompletionChunk(
+                id=completion_id,
+                created=created,
+                model=model,
+                choices=[
+                    ChatCompletionStreamChoice(
+                        index=0,
+                        delta={},
+                        finish_reason="stop"
+                    )
+                ]
+            )
+        
+        return None
+    
+    @staticmethod
     def _convert_stream_event(
         event: MessageStreamEvent,
         completion_id: str,
         created: int,
         model: str
     ) -> ChatCompletionChunk | None:
-        """Convert Anthropic streaming event to OpenAI format."""
+        """Convert Anthropic streaming event to OpenAI format (legacy support)."""
         if event.type == "content_block_delta":
             if hasattr(event.delta, "text"):
                 return ChatCompletionChunk(
