@@ -16,6 +16,7 @@ from app.models import (
     ModelsResponse,
     ModelInfo,
 )
+from app.deep_research import create_deep_research_stream
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -193,6 +194,49 @@ async def create_chat_completion(
             return response
     except Exception as e:
         logger.error(f"Error creating completion: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/deep-research")
+async def create_deep_research(
+    request: ChatCompletionRequest
+) -> StreamingResponse:
+    """
+    Deep Research endpoint using Gemini Thinking models.
+    
+    Provides comprehensive, research-style responses with extensive reasoning.
+    Only works with Gemini thinking models (gemini-2.0-flash-thinking-exp, etc.).
+    
+    Always streams responses with detailed reasoning_content showing the research process.
+    """
+    logger.info(
+        f"Deep Research request: model={request.model}, "
+        f"messages={len(request.messages)}"
+    )
+    
+    # Validate that a Gemini thinking model is being used
+    if "gemini" not in request.model.lower() or "thinking" not in request.model.lower():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Deep Research requires a Gemini Thinking model (e.g., gemini-2.0-flash-thinking-exp). "
+                   f"Got: {request.model}"
+        )
+    
+    # Validate model availability
+    available_models = await get_available_models()
+    if request.model not in available_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model {request.model} not found. Use /v1/models to see available models."
+        )
+    
+    try:
+        return StreamingResponse(
+            create_deep_research_stream(request),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        logger.error(f"Error in deep research: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
