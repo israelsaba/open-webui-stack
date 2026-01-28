@@ -93,16 +93,18 @@ class GeminiClient:
                 )
                 return self._get_hardcoded_models()
             
-            # Add virtual deep research model if thinking models exist
-            thinking_models = [m for m in models if "thinking" in m.id.lower()]
-            if thinking_models:
-                # Add deep research virtual model based on the newest thinking model
+            # Add virtual deep research model for enhanced research capabilities
+            # Only add if we don't already have one from the API
+            has_deep_research = any("deep-research" in m.id.lower() for m in models)
+            if not has_deep_research:
                 models.append(ModelInfo(
                     id="gemini-2.0-flash-thinking-deep-research",
                     created=int(time.time()),
                     owned_by="google"
                 ))
-                logger.info(f"Added virtual deep research model based on available thinking models")
+                logger.info(f"Added virtual deep research model")
+            else:
+                logger.info(f"Deep research model already available from API: {[m.id for m in models if 'deep-research' in m.id.lower()]}")
             
             logger.info(f"Successfully fetched {len(models)} models from Gemini API (including virtual models)")
             return models[:limit]

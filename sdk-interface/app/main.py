@@ -170,11 +170,14 @@ async def create_chat_completion(
                 detail=f"Model {request.model} not found. Use /v1/models to see available models."
             )
     
-    # Check if this is a deep research model (route to deep research endpoint)
+    # Check if this is our virtual deep research model (route to deep research endpoint)
+    # Note: Google's native deep-research models (like deep-research-pro-preview-12-2025) 
+    # are handled as regular Gemini models and don't need special routing
     model_lower = request.model.lower()
-    if "deep-research" in model_lower:
-        # Route to deep research with the base model
-        base_model = request.model.replace("-deep-research", "")
+    if request.model == "gemini-2.0-flash-thinking-deep-research":
+        # Our virtual model - use gemini-2.0-flash-thinking-exp as base
+        base_model = "gemini-2.0-flash-thinking-exp"
+        
         research_request = ChatCompletionRequest(
             model=base_model,
             messages=request.messages,
