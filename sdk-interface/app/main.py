@@ -198,11 +198,13 @@ async def create_chat_completion(
             raise HTTPException(status_code=500, detail=str(e))
     
     # Determine provider for regular models
-    if "gemini" in model_lower:
+    if "gemini" in model_lower or "gemma" in model_lower or "deep-research" in model_lower:
+        # Gemini models, Gemma models, and Google's deep-research models
         client = gemini_client
     elif "grok" in model_lower:
         client = grok_client
     else:
+        # Default to Anthropic (Claude models)
         client = anthropic_client
     
     try:
