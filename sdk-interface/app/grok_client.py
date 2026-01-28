@@ -218,9 +218,24 @@ class GrokClient:
             if request.stop:
                 kwargs["stop"] = request.stop
 
+            # Generate completion ID for meta-reasoning
+            completion_id_meta = f"chatcmpl-{int(time.time() * 1000)}"
+            created_meta = int(time.time())
+            
+            # Send meta-reasoning: Initiating connection
+            yield f"data: {ChatCompletionChunk(id=completion_id_meta, created=created_meta, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Grok API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            
             stream = await self.client.chat.completions.create(**kwargs)
             
+            # Send meta-reasoning: Stream started
+            yield f"data: {ChatCompletionChunk(id=completion_id_meta, created=created_meta, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            
+            first_chunk = True
             async for chunk in stream:
+                if first_chunk:
+                    # Send meta-reasoning: First response received
+                    yield f"data: {ChatCompletionChunk(id=completion_id_meta, created=created_meta, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
+                    first_chunk = False
                 # We need to convert the OpenAI chunk to our internal chunk format and then stringify
                 # But wait, our internal format IS OpenAI format.
                 # However, the chunk object from openai library needs to be dumped to json.

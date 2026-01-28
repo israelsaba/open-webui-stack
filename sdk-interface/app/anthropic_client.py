@@ -256,8 +256,20 @@ class AnthropicClient:
         completion_id = f"chatcmpl-{int(time.time() * 1000)}"
         created = int(time.time())
         
+        # Send meta-reasoning: Initiating connection
+        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Anthropic API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+        
         async with self.async_client.messages.stream(**kwargs) as stream:
+            # Send meta-reasoning: Stream started
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            
+            first_event = True
             async for event in stream:
+                if first_event:
+                    # Send meta-reasoning: First response received
+                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
+                    first_event = False
+                
                 chunk = self._convert_stream_event_new(
                     event, completion_id, created, request.model
                 )

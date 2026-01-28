@@ -330,6 +330,9 @@ class GeminiClient:
         created = int(time.time())
 
         try:
+            # Send meta-reasoning: Initiating connection
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Google Gemini API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            
             # Stream the response
             response_stream = self.client.models.generate_content_stream(
                 model=request.model,
@@ -337,11 +340,19 @@ class GeminiClient:
                 config=config
             )
             
+            # Send meta-reasoning: Stream started
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            
             # Track if we're in a thinking block for thinking models
             in_thinking_block = False
             thinking_buffer = []
+            first_chunk = True
             
             for chunk in response_stream:
+                if first_chunk:
+                    # Send meta-reasoning: First response received
+                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
+                    first_chunk = False
                 # Extract text delta from chunk
                 if hasattr(chunk, 'text') and chunk.text:
                     content_delta = chunk.text
