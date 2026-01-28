@@ -147,6 +147,29 @@ class AnthropicClient:
             raise ValueError(f"Model {model_id} not found")
     
     @staticmethod
+    def _supports_extended_thinking(model: str) -> bool:
+        """
+        Check if a model supports extended thinking.
+        
+        Models that support extended thinking:
+        - claude-3-7-sonnet and newer Sonnet models
+        - claude-4+ models (Opus, Sonnet)
+        """
+        model_lower = model.lower()
+        
+        # Claude 3.7+ Sonnet models
+        if "sonnet" in model_lower:
+            # Extract version if possible
+            if "3-7" in model_lower or "3.7" in model_lower:
+                return True
+        
+        # Claude 4+ models (all variants support thinking)
+        if any(prefix in model_lower for prefix in ["claude-4", "claude-opus-4", "claude-sonnet-4"]):
+            return True
+        
+        return False
+    
+    @staticmethod
     def _convert_messages(messages: list[ChatMessage]) -> tuple[str | None, list[dict[str, str]]]:
         """
         Convert OpenAI-style messages to Anthropic format.
@@ -181,6 +204,28 @@ class AnthropicClient:
             "messages": anthropic_messages,
             "max_tokens": request.max_tokens or 4096,
         }
+        
+        # Enable extended thinking for supported models
+        if self._supports_extended_thinking(request.model):
+            # Map reasoning_effort to thinking budget
+            effort_to_budget = {
+                "low": 2000,
+                "medium": 5000,
+                "high": 10000,
+            }
+            
+            # Use reasoning_effort if provided, otherwise default to medium
+            effort = (request.reasoning_effort or "medium").lower()
+            thinking_budget = effort_to_budget.get(effort, 5000)
+            
+            # Cap at max_tokens if specified
+            if request.max_tokens:
+                thinking_budget = min(thinking_budget, request.max_tokens)
+            
+            kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": thinking_budget
+            }
         
         if system_message:
             kwargs["system"] = system_message
@@ -244,6 +289,29 @@ class AnthropicClient:
             "max_tokens": request.max_tokens or 4096,
         }
         
+        # Enable extended thinking for supported models
+        thinking_budget = 0
+        if self._supports_extended_thinking(request.model):
+            # Map reasoning_effort to thinking budget
+            effort_to_budget = {
+                "low": 2000,
+                "medium": 5000,
+                "high": 10000,
+            }
+            
+            # Use reasoning_effort if provided, otherwise default to medium
+            effort = (request.reasoning_effort or "medium").lower()
+            thinking_budget = effort_to_budget.get(effort, 5000)
+            
+            # Cap at max_tokens if specified
+            if request.max_tokens:
+                thinking_budget = min(thinking_budget, request.max_tokens)
+            
+            kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": thinking_budget
+            }
+        
         if system_message:
             kwargs["system"] = system_message
         if request.temperature is not None:
@@ -257,7 +325,8 @@ class AnthropicClient:
         created = int(time.time())
         
         # Send meta-reasoning: Initiating connection
-        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Anthropic API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+        thinking_status = f" (extended thinking: {request.reasoning_effort or 'medium'} effort, {thinking_budget} tokens)" if self._supports_extended_thinking(request.model) else ""
+        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Anthropic API with model {request.model}{thinking_status}...'}, finish_reason=None)]).model_dump_json()}\n\n"
         
         async with self.async_client.messages.stream(**kwargs) as stream:
             # Send meta-reasoning: Stream started

@@ -18,6 +18,7 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)
     stop: str | list[str] | None = None
+    reasoning_effort: str | None = Field(default=None, description="Reasoning effort level: low, medium, high")
 
 
 # Response Models
