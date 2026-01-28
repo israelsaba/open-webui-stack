@@ -29,7 +29,7 @@ TESTS = [
     },
 ]
 
-API_BASE_URL = "http://localhost:8060/v1"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8060/v1")
 
 
 async def test_streaming(model: str, name: str, has_reasoning: bool):
