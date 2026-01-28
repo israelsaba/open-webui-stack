@@ -1,15 +1,11 @@
 import logging
 import time
 from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import Any
+import httpx
 
-import google.generativeai as genai
-from google.generativeai.types import (
-    GenerateContentResponse,
-    HarmCategory,
-    HarmBlockThreshold,
-)
+from google import genai
+from google.genai import types
 
 from app.config import settings
 from app.models import (
@@ -27,19 +23,20 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
-    """Client for interacting with Google Gemini API."""
+    """Client for interacting with Google Gemini API using the new google-genai SDK."""
 
     def __init__(self) -> None:
         if settings.google_api_key:
-            genai.configure(api_key=settings.google_api_key.get_secret_value())
+            self.client = genai.Client(api_key=settings.google_api_key.get_secret_value())
             self.available = True
         else:
             logger.warning("Google API key not configured. Gemini models will be unavailable.")
             self.available = False
+            self.client = None
 
     async def list_models(self, limit: int = 100) -> list[ModelInfo]:
         """
-        Fetch available models from Google Gemini API.
+        Fetch available models from Google Gemini API using REST API.
         
         Args:
             limit: Maximum number of models to fetch (default: 100)
@@ -47,32 +44,57 @@ class GeminiClient:
         Returns:
             List of ModelInfo objects in OpenAI-compatible format
         """
-        if not self.available:
+        if not self.available or not settings.google_api_key:
             return []
 
         try:
-            # List models using the synchronous API (it's fast enough)
-            # or wrap it if we strictly need async, but for now we'll call it directly
-            # as genai.list_models is a generator
-            
-            # Note: genai.list_models() returns an iterator
             models = []
-            for m in genai.list_models():
-                if "generateContent" in m.supported_generation_methods:
-                    # Parse name to get ID (e.g. "models/gemini-pro" -> "gemini-pro")
-                    model_id = m.name.replace("models/", "")
+            
+            # Use the REST API directly to list models
+            # Documentation: https://ai.google.dev/api/rest/v1beta/models/list
+            api_key = settings.google_api_key.get_secret_value()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+            
+            logger.info("Calling Gemini REST API to list models...")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+            
+            # Parse the response
+            total_models_from_api = len(data.get("models", []))
+            logger.info(f"Total models returned by API: {total_models_from_api}")
+            
+            for model in data.get("models", []):
+                model_name = model.get("name", "")
+                supported_methods = model.get("supportedGenerationMethods", [])
+                
+                # Log model details
+                logger.debug(f"Model {model_name}: supported_methods={supported_methods}")
+                
+                # Filter for models that support generateContent
+                if "generateContent" in supported_methods:
+                    # Remove 'models/' prefix from name
+                    model_id = model_name.replace("models/", "") if model_name.startswith("models/") else model_name
                     
-                    # Google API doesn't provide creation time, use current time or hardcoded fallback
-                    created_timestamp = int(time.time())
-                    
-                    models.append(ModelInfo(
-                        id=model_id,
-                        created=created_timestamp,
-                        owned_by="google"
-                    ))
+                    if model_id:
+                        models.append(ModelInfo(
+                            id=model_id,
+                            created=int(time.time()),
+                            owned_by="google"
+                        ))
+            
+            # If no models were returned, fall back to hardcoded list
+            if len(models) == 0:
+                logger.warning(
+                    f"Gemini API returned {total_models_from_api} total models but 0 support generateContent. "
+                    f"Falling back to hardcoded model list."
+                )
+                return self._get_hardcoded_models()
             
             logger.info(f"Successfully fetched {len(models)} models from Gemini API")
-            return models
+            return models[:limit]
         except Exception as e:
             logger.warning(f"Failed to fetch models from Gemini API: {e}, using hardcoded list")
             return self._get_hardcoded_models()
@@ -82,15 +104,38 @@ class GeminiClient:
         """
         Return a hardcoded list of available models as fallback.
         
+        This list should be updated periodically to include new models.
+        The REST API call above should dynamically fetch all available models,
+        but this serves as a fallback if the API is unavailable.
+        
         Returns:
             List of ModelInfo objects for known Gemini models
         """
         base_timestamp = int(time.time())
         
         model_ids = [
+            # Gemini 2.0 models (experimental)
+            "gemini-2.0-flash-exp",
+            "gemini-2.0-flash-thinking-exp-01-21",
+            "gemini-2.0-flash-thinking-exp",
+            "gemini-2.0-pro-exp",
+            # Gemini 1.5 models
+            "gemini-1.5-pro-latest",
+            "gemini-1.5-pro-002",
+            "gemini-1.5-pro-001",
             "gemini-1.5-pro",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-002",
+            "gemini-1.5-flash-001",
             "gemini-1.5-flash",
+            "gemini-1.5-flash-8b-latest",
+            "gemini-1.5-flash-8b-001",
+            "gemini-1.5-flash-8b",
+            # Gemini 1.0 models
+            "gemini-1.0-pro-latest",
+            "gemini-1.0-pro-001",
             "gemini-1.0-pro",
+            "gemini-1.0-pro-vision-latest",
         ]
         
         return [
@@ -112,17 +157,17 @@ class GeminiClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
-        if not self.available:
+        if not self.available or not self.client:
             raise ValueError("Google API key not configured")
 
         try:
             # Handle "gemini-" prefix if passed without "models/"
             full_model_name = f"models/{model_id}" if not model_id.startswith("models/") else model_id
             
-            model = genai.get_model(full_model_name)
+            model = self.client.models.get(model=full_model_name)
             
             return ModelInfo(
-                id=model.name.replace("models/", ""),
+                id=getattr(model, 'name', '').replace("models/", "") if getattr(model, 'name', None) else '',
                 created=int(time.time()),
                 owned_by="google"
             )
@@ -136,41 +181,35 @@ class GeminiClient:
             raise ValueError(f"Model {model_id} not found")
 
     @staticmethod
-    def _convert_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    def _convert_messages(messages: list[ChatMessage]) -> list[Any]: # Changed return type to list[Any]
         """
         Convert OpenAI-style messages to Gemini format.
         
         Returns:
-            List of content dictionaries for Gemini
+            List of Content objects for Gemini
         """
-        gemini_messages = []
-        system_instruction = None
+        gemini_contents = []
         
         for msg in messages:
             if msg.role == "system":
-                # Gemini 1.5 supports system instructions separately, 
-                # but for simplicity in chat history we might need to handle it differently
-                # depending on how we initialize the model. 
-                # For now, let's treat it as a user message or handle it at the model init level if possible.
-                # However, the generate_content API takes a 'contents' list.
-                # System prompts in Gemini are typically passed to GenerativeModel(system_instruction=...)
-                # But here we are processing a list of messages for a stateless call.
-                # We'll extract it and return it separately if we were creating the model object here.
-                # Since we are just converting messages for history, we might skip it here and handle it 
-                # in create_completion where we instantiate the model.
-                pass 
+                # System messages are handled separately in the config
+                continue
             elif msg.role == "user":
-                gemini_messages.append({
-                    "role": "user",
-                    "parts": [{"text": msg.content}]
-                })
+                gemini_contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=msg.content)]
+                    )
+                )
             elif msg.role == "assistant":
-                gemini_messages.append({
-                    "role": "model",
-                    "parts": [{"text": msg.content}]
-                })
+                gemini_contents.append(
+                    types.Content(
+                        role="model",
+                        parts=[types.Part(text=msg.content)]
+                    )
+                )
                 
-        return gemini_messages
+        return gemini_contents
 
     @staticmethod
     def _extract_system_message(messages: list[ChatMessage]) -> str | None:
@@ -185,68 +224,64 @@ class GeminiClient:
         request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         """Create a non-streaming chat completion."""
-        if not self.available:
+        if not self.available or not self.client:
             raise ValueError("Google API key not configured")
 
         system_message = self._extract_system_message(request.messages)
         contents = self._convert_messages(request.messages)
         
-        # Configure model
-        model_name = request.model
-        if not model_name.startswith("models/") and not model_name.startswith("gemini-"):
-             # Assuming simple ID is passed, Google usually expects 'gemini-...'
-             # But if the user passed 'claude-...' it shouldn't be here.
-             pass
-
-        generation_config = genai.types.GenerationConfig(
-            candidate_count=1,
-            max_output_tokens=request.max_tokens,
+        # Build generation config
+        config = types.GenerateContentConfig(
             temperature=request.temperature,
             top_p=request.top_p,
-            stop_sequences=[request.stop] if isinstance(request.stop, str) else request.stop if request.stop else None
+            max_output_tokens=request.max_tokens,
+            system_instruction=system_message,
         )
-
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_message
-        )
+        
+        # Add stop sequences if provided
+        if request.stop:
+            stop_sequences = [request.stop] if isinstance(request.stop, str) else request.stop
+            config.stop_sequences = stop_sequences
 
         try:
-            response = await model.generate_content_async(
-                contents,
-                generation_config=generation_config,
-                stream=False
+            response = self.client.models.generate_content(
+                model=request.model,
+                contents=contents, # Keep as is, list[Any] should be compatible
+                config=config
             )
             
             completion_id = f"chatcmpl-{int(time.time())}"
             created = int(time.time())
             
-            content = response.text
+            # Extract text from response
+            content = response.text if hasattr(response, 'text') and response.text is not None else ""
             
             # Map finish reason
-            finish_reason = "stop"
-            if response.candidates and response.candidates[0].finish_reason:
-                # Map Google finish reasons to OpenAI
-                # 1: STOP, 2: MAX_TOKENS, 3: SAFETY, 4: RECITATION, 5: OTHER
-                reason_map = {
-                    1: "stop",
-                    2: "length",
-                    3: "content_filter",
-                    4: "content_filter" 
-                }
-                finish_reason = reason_map.get(response.candidates[0].finish_reason.value, "stop")
+            finish_reason: str = "stop"
+            if response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'finish_reason'):
+                    # Map Google finish reasons to OpenAI
+                    reason_str = str(candidate.finish_reason)
+                    if "MAX_TOKENS" in reason_str:
+                        finish_reason = "length"
+                    elif "SAFETY" in reason_str or "RECITATION" in reason_str:
+                        finish_reason = "content_filter"
+                    else:
+                        finish_reason = "stop"
 
+            # Extract usage metadata
             usage = Usage(
-                prompt_tokens=0, # Google doesn't always return token counts easily in the simple response object without extra calls
+                prompt_tokens=0,
                 completion_tokens=0,
                 total_tokens=0
             )
             
-            if response.usage_metadata:
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 usage = Usage(
-                    prompt_tokens=response.usage_metadata.prompt_token_count,
-                    completion_tokens=response.usage_metadata.candidates_token_count,
-                    total_tokens=response.usage_metadata.total_token_count
+                    prompt_tokens=response.usage_metadata.prompt_token_count if response.usage_metadata and response.usage_metadata.prompt_token_count is not None else 0,
+                    completion_tokens=response.usage_metadata.candidates_token_count if response.usage_metadata and response.usage_metadata.candidates_token_count is not None else 0,
+                    total_tokens=response.usage_metadata.total_token_count if response.usage_metadata and response.usage_metadata.total_token_count is not None else 0
                 )
 
             return ChatCompletionResponse(
@@ -272,51 +307,54 @@ class GeminiClient:
         request: ChatCompletionRequest
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion."""
-        if not self.available:
+        if not self.available or not self.client:
             raise ValueError("Google API key not configured")
 
         system_message = self._extract_system_message(request.messages)
         contents = self._convert_messages(request.messages)
         
-        generation_config = genai.types.GenerationConfig(
-            candidate_count=1,
-            max_output_tokens=request.max_tokens,
+        # Build generation config
+        config = types.GenerateContentConfig(
             temperature=request.temperature,
             top_p=request.top_p,
-            stop_sequences=[request.stop] if isinstance(request.stop, str) else request.stop if request.stop else None
+            max_output_tokens=request.max_tokens,
+            system_instruction=system_message,
         )
-
-        model = genai.GenerativeModel(
-            model_name=request.model,
-            system_instruction=system_message
-        )
+        
+        # Add stop sequences if provided
+        if request.stop:
+            stop_sequences = [request.stop] if isinstance(request.stop, str) else request.stop
+            config.stop_sequences = stop_sequences
         
         completion_id = f"chatcmpl-{int(time.time() * 1000)}"
         created = int(time.time())
 
         try:
-            response_stream = await model.generate_content_async(
-                contents,
-                generation_config=generation_config,
-                stream=True
+            # Stream the response
+            response_stream = self.client.models.generate_content_stream(
+                model=request.model,
+                contents=contents, # Keep as is, list[Any] should be compatible
+                config=config
             )
             
-            async for chunk in response_stream:
-                content_delta = chunk.text
-                
-                response_chunk = ChatCompletionChunk(
-                    id=completion_id,
-                    created=created,
-                    model=request.model,
-                    choices=[
-                        ChatCompletionStreamChoice(
-                            index=0,
-                            delta={"role": "assistant", "content": content_delta},
-                            finish_reason=None
-                        )
-                    ]
-                )
-                yield f"data: {response_chunk.model_dump_json()}\n\n"
+            for chunk in response_stream:
+                # Extract text delta from chunk
+                if hasattr(chunk, 'text') and chunk.text:
+                    content_delta = chunk.text
+                    
+                    response_chunk = ChatCompletionChunk(
+                        id=completion_id,
+                        created=created,
+                        model=request.model,
+                        choices=[
+                            ChatCompletionStreamChoice(
+                                index=0,
+                                delta={"role": "assistant", "content": content_delta},
+                                finish_reason=None
+                            )
+                        ]
+                    )
+                    yield f"data: {response_chunk.model_dump_json()}\n\n"
             
             # Send final stop chunk
             final_chunk = ChatCompletionChunk(
@@ -339,5 +377,4 @@ class GeminiClient:
             raise
 
 
-# Global client instance
 gemini_client = GeminiClient()

@@ -1,8 +1,9 @@
 import time
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.anthropic_client import anthropic_client
 from app.gemini_client import gemini_client
@@ -22,11 +23,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Middleware to log HTTP requests with appropriate log levels based on status code."""
+    
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Log with appropriate level based on status code
+        client_host = request.client.host if request.client else "unknown"
+        client_port = request.client.port if request.client else "unknown"
+        log_msg = f'{client_host}:{client_port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code}'
+        
+        if response.status_code >= 500:
+            logger.error(log_msg)
+        elif response.status_code >= 400:
+            logger.warning(log_msg)
+        else:
+            logger.info(log_msg)
+        
+        return response
+
 app = FastAPI(
     title="Anthropic, Gemini & Grok to OpenAI API Bridge",
     description="OpenAI-compatible API for Anthropic, Gemini, and Grok models",
     version="1.2.0"
 )
+
+# Add access log middleware
+app.add_middleware(AccessLogMiddleware)
 
 # Add bearer token authentication middleware
 valid_tokens = parse_api_keys(settings.api_keys)
@@ -183,5 +208,6 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.host,
         port=settings.port,
-        log_level=settings.log_level
+        log_level=settings.log_level,
+        access_log=False  # Disable default access logs (we use custom middleware)
     )
