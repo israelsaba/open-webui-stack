@@ -1,9 +1,7 @@
-from contextlib import asynccontextmanager
 import logging
 import json
 import hashlib
 import sqlite3
-from functools import cache
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -18,7 +16,6 @@ from app.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ModelsResponse,
-    ModelInfo,
     PreviousCompletion
 )
 
@@ -71,16 +68,10 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         
         return response
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-
-
 app = FastAPI(
     title="Anthropic, Gemini & Grok to OpenAI API Bridge",
     description="OpenAI-compatible API for Anthropic, Gemini, and Grok models",
     version="1.2.0",
-    lifespan=lifespan
 )
 
 app.add_middleware(AccessLogMiddleware)
@@ -139,7 +130,6 @@ async def list_models() -> ModelsResponse:
     """List available models from all supported APIs in OpenAI format."""
     all_models = []
     
-    # Fetch from each provider, continue even if one fails
     try:
         anthropic_models = await anthropic_client.list_models()
         all_models.extend(anthropic_models)
@@ -169,48 +159,6 @@ async def list_models() -> ModelsResponse:
     
     logger.debug(f"Total models fetched: {len(all_models)}")
     return ModelsResponse(data=all_models)
-
-
-#     except ValueError as e:
-#         logger.warning(f"Model {model_id} not found: {e}")
-#         raise HTTPException(
-#             status_code=404,
-#             detail=str(e)
-#         )
-#     except Exception as e:
-#         logger.error(f"Error fetching model {model_id}: {e}", exc_info=True)
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Error fetching model {model_id}: {str(e)}"
-#         )
-# @app.get("/v1/models/{model_id}")
-# async def get_model(model_id: str) -> ModelInfo:
-#     """Get a specific model by ID from any provider in OpenAI format."""
-#     try:
-#         try:
-#             return await anthropic_client.get_model(model_id)
-#         except ValueError:
-#             try:
-#                 return await gemini_client.get_model(model_id)
-#             except ValueError:
-#                 try:
-#                     return await grok_client.get_model(model_id)
-#                 except ValueError:
-#                     raise ValueError(f"Model {model_id} not found in any provider")
-#
-#     except ValueError as e:
-#         logger.warning(f"Model {model_id} not found: {e}")
-#         raise HTTPException(
-#             status_code=404,
-#             detail=str(e)
-#         )
-#     except Exception as e:
-#         logger.error(f"Error fetching model {model_id}: {e}", exc_info=True)
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Error fetching model {model_id}: {str(e)}"
-#         )
-
 
 
 async def get_client(request: ChatCompletionRequest):
