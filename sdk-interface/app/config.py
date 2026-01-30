@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     detailed_request_logging: bool = False
     db_path: Path = Path("data/db.sqlite3")
     migrations_path: Path = Path("migrations")
+    
+    # Google Deep Research polling interval (seconds)
+    interaction_poll_interval: int = 30
 
 
 settings = Settings()

@@ -25,9 +25,6 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
-# Polling interval for checking interaction status (in seconds)
-INTERACTION_POLL_INTERVAL = 1  # Set to 1 second for testing
-
 
 class GeminiClient:
     """Client for interacting with Google Gemini API using the new google-genai SDK."""
@@ -374,17 +371,19 @@ class GeminiClient:
         # Convert stream to async iterator we can control
         stream_iter = stream.__aiter__()
         
+        poll_interval = settings.interaction_poll_interval
+        
         while not is_complete:
             try:
                 # Wait for next event with timeout equal to polling interval
-                logger.debug(f"Waiting for next event (timeout: {INTERACTION_POLL_INTERVAL}s)...")
+                logger.debug(f"Waiting for next event (timeout: {poll_interval}s)...")
                 
                 # If stream_iter is None (reconnection failed), just sleep and poll
                 if stream_iter is None:
-                    await asyncio.sleep(INTERACTION_POLL_INTERVAL)
+                    await asyncio.sleep(poll_interval)
                     raise asyncio.TimeoutError()  # Trigger polling
                     
-                event = await asyncio.wait_for(stream_iter.__anext__(), timeout=INTERACTION_POLL_INTERVAL)
+                event = await asyncio.wait_for(stream_iter.__anext__(), timeout=poll_interval)
                 
                 logger.debug(f"interaction event: {event}")
                 
@@ -422,7 +421,7 @@ class GeminiClient:
                 # Timeout reached - poll for status and send update, then reconnect
                 if interaction_id:
                     try:
-                        logger.info(f"Polling interaction {interaction_id} status after {INTERACTION_POLL_INTERVAL}s timeout")
+                        logger.info(f"Polling interaction {interaction_id} status after {poll_interval}s timeout")
                         interaction_status = await self.client.aio.interactions.get(id=interaction_id)
                         
                         if interaction_status and hasattr(interaction_status, 'status'):
@@ -484,7 +483,7 @@ class GeminiClient:
                                     )
                                     logger.info(f"Received stream response, creating iterator")
                                     stream_iter = stream.__aiter__()
-                                    logger.info(f"Reconnected successfully, continuing loop to start new {INTERACTION_POLL_INTERVAL}s timeout")
+                                    logger.info(f"Reconnected successfully, continuing loop to start new {poll_interval}s timeout")
                                     # Continue the loop to start listening to the new stream
                                     continue
                                 except asyncio.TimeoutError:
