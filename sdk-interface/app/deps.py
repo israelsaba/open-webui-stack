@@ -94,8 +94,8 @@ def get_db(
     check_previous_completion: Annotated[bool, Depends(needs_previous_checking)]
 ):
     if check_previous_completion:  
-        from app.db import get_db
-        return get_db(api_request)
+        from app.db import start_db
+        return start_db(api_request)
     return None
 
 def get_previous_completion(
