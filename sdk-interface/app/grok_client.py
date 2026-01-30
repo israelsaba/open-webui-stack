@@ -1,5 +1,6 @@
 import logging
 import time
+import sqlite3
 from collections.abc import AsyncIterator
 
 from openai import AsyncOpenAI, APIError
@@ -13,6 +14,7 @@ from app.models import (
     ChatCompletionStreamChoice,
     ChatMessage,
     ModelInfo,
+    PreviousCompletion,
     Usage,
 )
 
@@ -24,7 +26,7 @@ class GrokClient:
 
     def __init__(self) -> None:
         if settings.grok_api_key:
-            logger.info("Initializing Grok client with API key")
+            logger.debug("Initializing Grok client with API key")
             self.client = AsyncOpenAI(
                 api_key=settings.grok_api_key.get_secret_value(),
                 base_url="https://api.x.ai/v1"
@@ -47,7 +49,7 @@ class GrokClient:
         if not self.available:
             # Return hardcoded models even if API key is not configured
             # This allows the models to be "seen" by the system, but attempts to use them will fail
-            logger.info("Grok API key not configured, returning hardcoded models list")
+            logger.debug("Grok API key not configured, returning hardcoded models list")
             return self._get_hardcoded_models()
 
         try:
@@ -61,7 +63,7 @@ class GrokClient:
                     owned_by=model.owned_by
                 ))
             
-            logger.info(f"Successfully fetched {len(models)} models from Grok API")
+            logger.debug(f"Successfully fetched {len(models)} models from Grok API")
             return models
         except Exception as e:
             logger.warning(f"Failed to fetch models from Grok API: {e}, using hardcoded list")
@@ -193,7 +195,9 @@ class GrokClient:
 
     async def create_stream_completion(
         self,
-        request: ChatCompletionRequest
+        request: ChatCompletionRequest,
+        db: sqlite3.Connection | None = None,
+        previous_completion: PreviousCompletion | None = None
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion."""
         if not self.available:

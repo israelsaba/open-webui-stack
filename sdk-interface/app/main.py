@@ -1,13 +1,16 @@
-import time
+from contextlib import asynccontextmanager
 import logging
+import json
+import hashlib
+import sqlite3
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-
-from app.anthropic_client import anthropic_client
-from app.gemini_client import gemini_client
-from app.grok_client import grok_client
+from app.anthropic_client import AnthropicClient, anthropic_client
+from app.gemini_client import GeminiClient, gemini_client
+from app.grok_client import GrokClient, grok_client
 from app.auth import BearerTokenMiddleware, parse_api_keys
 from app.config import settings
 from app.models import (
@@ -15,25 +18,48 @@ from app.models import (
     ChatCompletionResponse,
     ModelsResponse,
     ModelInfo,
+    PreviousCompletion
 )
-from app.deep_research import create_deep_research_stream
+
 
 logging.basicConfig(
     level=settings.log_level.upper(),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    """Middleware to log HTTP requests with appropriate log levels based on status code."""
     
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        
-        # Log with appropriate level based on status code
         client_host = request.client.host if request.client else "unknown"
         client_port = request.client.port if request.client else "unknown"
+        
+        if settings.detailed_request_logging:
+            body_bytes = await request.body()
+            
+            log_details = {
+                "method": request.method,
+                "url": str(request.url),
+                "path": request.url.path,
+                "query_params": dict(request.query_params),
+                "headers": dict(request.headers),
+                "client": f"{client_host}:{client_port}",
+            }
+            
+            if body_bytes:
+                try:
+                    body_str = body_bytes.decode('utf-8')
+                    try:
+                        log_details["body"] = json.loads(body_str)
+                    except json.JSONDecodeError:
+                        log_details["body"] = body_str
+                except UnicodeDecodeError:
+                    log_details["body"] = f"<binary data: {len(body_bytes)} bytes>"
+            
+        
+        response = await call_next(request)
+        
         log_msg = f'{client_host}:{client_port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code}'
         
         if response.status_code >= 500:
@@ -41,29 +67,32 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         elif response.status_code >= 400:
             logger.warning(log_msg)
         else:
-            logger.info(log_msg)
+            logger.debug(log_msg)
         
         return response
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+
 
 app = FastAPI(
     title="Anthropic, Gemini & Grok to OpenAI API Bridge",
     description="OpenAI-compatible API for Anthropic, Gemini, and Grok models",
-    version="1.2.0"
+    version="1.2.0",
+    lifespan=lifespan
 )
 
-# Add access log middleware
 app.add_middleware(AccessLogMiddleware)
 
-# Add bearer token authentication middleware
 valid_tokens = parse_api_keys(settings.api_keys)
 if valid_tokens:
     app.add_middleware(BearerTokenMiddleware, valid_tokens=valid_tokens)
-    logger.info(f"Bearer token authentication enabled with {len(valid_tokens)} valid tokens")
+    logger.debug(f"Bearer token authentication enabled with {len(valid_tokens)} valid tokens")
 else:
     logger.warning("No API keys configured - authentication is DISABLED")
 
 
-# Cache for model validation (fetched from APIs on first request)
 _model_cache: set[str] | None = None
 
 
@@ -99,7 +128,7 @@ async def list_models() -> ModelsResponse:
         grok_models = await grok_client.list_models()
         
         all_models = anthropic_models + gemini_models + grok_models
-        logger.info(f"Fetched {len(all_models)} models "
+        logger.debug(f"Fetched {len(all_models)} models "
                    f"({len(anthropic_models)} Anthropic, "
                    f"{len(gemini_models)} Gemini, "
                    f"{len(grok_models)} Grok)")
@@ -116,7 +145,6 @@ async def list_models() -> ModelsResponse:
 async def get_model(model_id: str) -> ModelInfo:
     """Get a specific model by ID from any provider in OpenAI format."""
     try:
-        # Check cache or prefixes to decide where to look first if possible
         try:
             return await anthropic_client.get_model(model_id)
         except ValueError:
@@ -142,9 +170,71 @@ async def get_model(model_id: str) -> ModelInfo:
         )
 
 
+def get_client(request: ChatCompletionRequest):
+    model_lower = request.model.lower()
+    if "gemini" in model_lower or "gemma" in model_lower or "deep-research" in model_lower:
+        return gemini_client
+    elif "grok" in model_lower:
+        return grok_client
+    else:
+        return anthropic_client
+
+def needs_previous_checking(
+    request: ChatCompletionRequest,
+    client: Annotated[GeminiClient | AnthropicClient | GrokClient, Depends(get_client)]
+):
+    if isinstance(client, GeminiClient) and "deep-research" in request.model.lower():
+        return True
+    return False
+
+def get_db(
+    api_request: Request,
+    check_previous_completion: Annotated[bool, Depends(needs_previous_checking)]
+):
+    if check_previous_completion:  
+        from app.db import get_db
+        return get_db(api_request)
+    return None
+
+def get_previous_completion(
+    check_previous_completion: Annotated[bool, Depends(needs_previous_checking)],
+    db: Annotated[sqlite3.Connection | None, Depends(get_db)],
+    request: ChatCompletionRequest
+):
+    if check_previous_completion and db:
+        s = json.dumps([msg.model_dump() for msg in request.messages], sort_keys=True, separators=(',', ':'))
+        h = hashlib.md5(s.encode('utf-8')).hexdigest()
+        row = db.execute("""
+            SELECT * 
+            FROM research_hashes 
+            WHERE md5 = ? AND deleted_at IS NULL 
+            LIMIT 1
+        """,(h,),).fetchone()
+
+        if not row:
+            import time
+            now = time.strftime('%Y-%m-%d %H:%M:%S')
+            db.execute("INSERT INTO research_hashes (md5, created_at, created_by) VALUES (?, ?, ?)", (h, now, "system"))
+            db.commit()
+            
+            row = db.execute("""
+                SELECT * 
+                FROM research_hashes 
+                WHERE md5 = ? AND deleted_at IS NULL 
+                LIMIT 1
+            """,(h,),).fetchone()
+
+        return PreviousCompletion.model_validate(dict(row))
+        
+    
+    return None
+
 @app.post("/v1/chat/completions", response_model=None)
 async def create_chat_completion(
-    request: ChatCompletionRequest
+    request: ChatCompletionRequest,
+    client: Annotated[GeminiClient | AnthropicClient | GrokClient, Depends(get_client)],
+    db: Annotated[sqlite3.Connection | None, Depends(get_db)],
+    previous_completion: Annotated[PreviousCompletion| None, Depends(get_previous_completion)]
 ) -> ChatCompletionResponse | StreamingResponse:
     """
     Create a chat completion using Anthropic, Gemini, or Grok API.
@@ -156,7 +246,6 @@ async def create_chat_completion(
         f"messages={len(request.messages)}, stream={request.stream}"
     )
     
-    # Validate model
     available_models = await get_available_models()
     if request.model not in available_models:
         global _model_cache
@@ -170,47 +259,10 @@ async def create_chat_completion(
                 detail=f"Model {request.model} not found. Use /v1/models to see available models."
             )
     
-    # Check if this is our virtual deep research model (route to deep research endpoint)
-    # Note: Google's native deep-research models (like deep-research-pro-preview-12-2025) 
-    # are handled as regular Gemini models and don't need special routing
-    model_lower = request.model.lower()
-    if request.model == "gemini-2.0-flash-thinking-deep-research":
-        # Our virtual model - use gemini-2.0-flash-thinking-exp as base
-        base_model = "gemini-2.0-flash-thinking-exp"
-        
-        research_request = ChatCompletionRequest(
-            model=base_model,
-            messages=request.messages,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            stream=True,  # Deep research always streams
-            top_p=request.top_p,
-            stop=request.stop,
-            reasoning_effort=request.reasoning_effort,
-        )
-        try:
-            return StreamingResponse(
-                create_deep_research_stream(research_request),
-                media_type="text/event-stream"
-            )
-        except Exception as e:
-            logger.error(f"Error in deep research: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    # Determine provider for regular models
-    if "gemini" in model_lower or "gemma" in model_lower or "deep-research" in model_lower:
-        # Gemini models, Gemma models, and Google's deep-research models
-        client = gemini_client
-    elif "grok" in model_lower:
-        client = grok_client
-    else:
-        # Default to Anthropic (Claude models)
-        client = anthropic_client
-    
     try:
         if request.stream:
             return StreamingResponse(
-                client.create_stream_completion(request),
+                client.create_stream_completion(request, db, previous_completion),
                 media_type="text/event-stream"
             )
         else:
@@ -225,47 +277,6 @@ async def create_chat_completion(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/v1/deep-research")
-async def create_deep_research(
-    request: ChatCompletionRequest
-) -> StreamingResponse:
-    """
-    Deep Research endpoint using Gemini Thinking models.
-    
-    Provides comprehensive, research-style responses with extensive reasoning.
-    Only works with Gemini thinking models (gemini-2.0-flash-thinking-exp, etc.).
-    
-    Always streams responses with detailed reasoning_content showing the research process.
-    """
-    logger.info(
-        f"Deep Research request: model={request.model}, "
-        f"messages={len(request.messages)}"
-    )
-    
-    # Validate that a Gemini thinking model is being used
-    if "gemini" not in request.model.lower() or "thinking" not in request.model.lower():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Deep Research requires a Gemini Thinking model (e.g., gemini-2.0-flash-thinking-exp). "
-                   f"Got: {request.model}"
-        )
-    
-    # Validate model availability
-    available_models = await get_available_models()
-    if request.model not in available_models:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Model {request.model} not found. Use /v1/models to see available models."
-        )
-    
-    try:
-        return StreamingResponse(
-            create_deep_research_stream(request),
-            media_type="text/event-stream"
-        )
-    except Exception as e:
-        logger.error(f"Error in deep research: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
@@ -281,5 +292,6 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level,
-        access_log=False  # Disable default access logs (we use custom middleware)
+        access_log=False,
+        timeout_graceful_shutdown=0
     )

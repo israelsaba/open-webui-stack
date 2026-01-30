@@ -2,7 +2,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-# Request Models
 class ChatMessage(BaseModel):
     """A single chat message."""
     role: Literal["system", "user", "assistant"]
@@ -79,3 +78,14 @@ class ChatCompletionChunk(BaseModel):
     created: int
     model: str
     choices: list[ChatCompletionStreamChoice]
+
+class PreviousCompletion (BaseModel):
+    id: int
+    md5: str
+    interaction_id: str | None = None
+    created_at: str
+    created_by: str | None = None
+    updated_at: str | None = None
+    updated_by: str | None = None
+    deleted_at: str | None = None
+    deleted_by: str | None = None

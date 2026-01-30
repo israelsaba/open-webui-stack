@@ -1,3 +1,4 @@
+from pathlib import Path
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,13 +13,16 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
-    anthropic_api_key: SecretStr
+    anthropic_api_key: SecretStr | None = None
     google_api_key: SecretStr | None = None
     grok_api_key: SecretStr | None = None
-    api_keys: str = ""  # Format: username1:token1;username2:token2;...
+    api_keys: str = ""
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
+    detailed_request_logging: bool = False
+    db_path: Path = Path("data/db.sqlite3")
+    migrations_path: Path = Path("migrations")
 
 
 settings = Settings()

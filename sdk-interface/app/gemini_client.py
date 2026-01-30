@@ -1,3 +1,4 @@
+import sqlite3
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -16,6 +17,7 @@ from app.models import (
     ChatCompletionStreamChoice,
     ChatMessage,
     ModelInfo,
+    PreviousCompletion,
     Usage,
 )
 
@@ -50,30 +52,24 @@ class GeminiClient:
         try:
             models = []
             
-            # Use the REST API directly to list models
-            # Documentation: https://ai.google.dev/api/rest/v1beta/models/list
             api_key = settings.google_api_key.get_secret_value()
             url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
             
-            logger.info("Calling Gemini REST API to list models...")
             
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, timeout=10.0)
                 response.raise_for_status()
                 data = response.json()
             
-            # Parse the response
             total_models_from_api = len(data.get("models", []))
-            logger.info(f"Total models returned by API: {total_models_from_api}")
+            logger.debug(f"Total models returned by API: {total_models_from_api}")
             
             for model in data.get("models", []):
                 model_name = model.get("name", "")
                 supported_methods = model.get("supportedGenerationMethods", [])
                 
-                # Log model details
                 logger.debug(f"Model {model_name}: supported_methods={supported_methods}")
                 
-                # Filter for models that support generateContent
                 if "generateContent" in supported_methods:
                     # Remove 'models/' prefix from name
                     model_id = model_name.replace("models/", "") if model_name.startswith("models/") else model_name
@@ -93,20 +89,7 @@ class GeminiClient:
                 )
                 return self._get_hardcoded_models()
             
-            # Add virtual deep research model for enhanced research capabilities
-            # Only add if we don't already have one from the API
-            has_deep_research = any("deep-research" in m.id.lower() for m in models)
-            if not has_deep_research:
-                models.append(ModelInfo(
-                    id="gemini-2.0-flash-thinking-deep-research",
-                    created=int(time.time()),
-                    owned_by="google"
-                ))
-                logger.info(f"Added virtual deep research model")
-            else:
-                logger.info(f"Deep research model already available from API: {[m.id for m in models if 'deep-research' in m.id.lower()]}")
-            
-            logger.info(f"Successfully fetched {len(models)} models from Gemini API (including virtual models)")
+            logger.debug(f"Successfully fetched {len(models)} models from Gemini API")
             return models[:limit]
         except Exception as e:
             logger.warning(f"Failed to fetch models from Gemini API: {e}, using hardcoded list")
@@ -238,14 +221,11 @@ class GeminiClient:
         self,
         request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
-        """Create a non-streaming chat completion."""
-        if not self.available or not self.client:
-            raise ValueError("Google API key not configured")
+        """Create a chat completion."""
 
         system_message = self._extract_system_message(request.messages)
         contents = self._convert_messages(request.messages)
         
-        # Build generation config
         config = types.GenerateContentConfig(
             temperature=request.temperature,
             top_p=request.top_p,
@@ -253,7 +233,6 @@ class GeminiClient:
             system_instruction=system_message,
         )
         
-        # Add stop sequences if provided
         if request.stop:
             stop_sequences = [request.stop] if isinstance(request.stop, str) else request.stop
             config.stop_sequences = stop_sequences
@@ -261,22 +240,19 @@ class GeminiClient:
         try:
             response = self.client.models.generate_content(
                 model=request.model,
-                contents=contents, # Keep as is, list[Any] should be compatible
+                contents=contents,
                 config=config
             )
             
             completion_id = f"chatcmpl-{int(time.time())}"
             created = int(time.time())
             
-            # Extract text from response
             content = response.text if hasattr(response, 'text') and response.text is not None else ""
             
-            # Map finish reason
             finish_reason: str = "stop"
             if response.candidates and len(response.candidates) > 0:
                 candidate = response.candidates[0]
                 if hasattr(candidate, 'finish_reason'):
-                    # Map Google finish reasons to OpenAI
                     reason_str = str(candidate.finish_reason)
                     if "MAX_TOKENS" in reason_str:
                         finish_reason = "length"
@@ -285,7 +261,6 @@ class GeminiClient:
                     else:
                         finish_reason = "stop"
 
-            # Extract usage metadata
             usage = Usage(
                 prompt_tokens=0,
                 completion_tokens=0,
@@ -317,18 +292,201 @@ class GeminiClient:
             logger.error(f"Error creating Gemini completion: {e}", exc_info=True)
             raise
 
+    @staticmethod
+    def _convert_messages_to_turns(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+        """
+        Convert messages to Interaction turns (dicts).
+        
+        Args:
+            messages: List of ChatMessage objects
+            
+        Returns:
+            List of TurnParam dicts for Interactions API
+        """
+        turns = []
+        for msg in messages:
+            if msg.role == "system":
+                continue
+            
+            role = "user" if msg.role == "user" else "model"
+            turns.append({
+                "role": role,
+                "content": msg.content
+            })
+        return turns
+
+# from dotenv import load_dotenv
+# import os
+# import time
+# from google import genai
+#
+# load_dotenv()
+# client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+#
+# agent_name = 'deep-research-pro-preview-12-2025'
+#
+# last_event_id = None
+# interaction_id = "v1_ChdHSXA2YWF2LUNQalZ6N0lQcWRiQ3NBNBIXR0lwNmFhdi1DUGpWejdJUHFkYkNzQTQ"
+# is_complete = False
+#
+#
+#
+# def process_stream(event_stream):
+#     """Helper to process events from any stream source."""
+#     global last_event_id, interaction_id, is_complete
+#     for event in event_stream:
+#         if event.event_type == "interaction.start":
+#             interaction_id = event.interaction.id
+#             print(f"Interaction started: {interaction_id}")
+#
+#         if event.event_id:
+#             last_event_id = event.event_id
+#
+#         if event.event_type == "content.delta":
+#             if event.delta.type == "text":
+#                 print(event.delta.text, end="", flush=True)
+#             elif event.delta.type == "thought_summary":
+#                 print(f"Thought: {event.delta.content.text}", flush=True)
+#
+#         if event.event_type in ['interaction.complete', 'error']:
+#             is_complete = True
+#
+# try:
+#     print("Starting Research...")
+#     initial_stream = client.interactions.create(
+#         input=prompt,
+#         agent=agent_name,
+#         background=True,
+#         stream=True,
+#         agent_config={
+#             "type": "deep-research",
+#             "thinking_summaries": "auto"
+#         }
+#     )
+#     process_stream(initial_stream)
+# except Exception as e:
+#     print(f"\nInitial connection dropped: {e}")
+#
+# while not is_complete and interaction_id:
+#     print(f"\nConnection lost. Resuming from event {last_event_id}...")
+#     time.sleep(2) 
+#
+#     try:
+#         resume_stream = client.interactions.get(
+#             id=interaction_id,
+#             stream=True,
+#             last_event_id=last_event_id
+#         )
+#         process_stream(resume_stream)
+#     except Exception as e:
+#         print(f"Reconnection failed, retrying... ({e})")
+#
+#
+
+
+    async def _create_interaction_stream(
+        self,
+        request: ChatCompletionRequest,
+        db: sqlite3.Connection | None = None,
+        previous_completion: PreviousCompletion | None = None,
+        md5_hash: str | None = None
+    ) -> AsyncIterator[str]:
+        completion_id = f"chatcmpl-{int(time.time() * 1000)}"
+        created = int(time.time())
+        
+        system_message = self._extract_system_message(request.messages)
+        input_turns = self._convert_messages_to_turns(request.messages)
+        
+        if system_message:
+            if input_turns and input_turns[0]["role"] == "user":
+                input_turns[0]["content"] = f"System Instruction: {system_message}\n\n{input_turns[0]['content']}"
+            else:
+                input_turns.insert(0, {
+                    "role": "user",
+                    "content": f"System Instruction: {system_message}"
+                })
+        
+        interaction_id = previous_completion.interaction_id if previous_completion and previous_completion.interaction_id else None
+        last_event_id = None
+        is_complete = False
+        
+        if not interaction_id:
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Deep Research Agent ({request.model})...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            
+            kwargs = {
+                "agent": request.model,
+                "input": input_turns,
+                "stream": True,
+                "background": True,
+                "agent_config":{
+                    "type": "deep-research",
+                    "thinking_summaries": "auto"
+                }
+            }
+            
+            stream = await self.client.aio.interactions.create(**kwargs)
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Interaction started...'}, finish_reason=None)]).model_dump_json()}\n\n"
+        else:
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Continuing interaction with id {interaction_id}'}, finish_reason=None)]).model_dump_json()}\n\n"
+            stream = await self.client.aio.interactions.get(id=interaction_id, stream=True)
+        
+        while not is_complete:
+            async for event in stream:
+                logger.debug(f"interaction event: {event}")
+                
+                if event.event_type == "interaction.start":
+                    interaction_id = event.interaction.id
+                    logger.debug(f"Interaction ID is: {interaction_id}, md5_hash: {md5_hash}")
+                    
+                    if md5_hash:
+                        import sqlite3 as sqlite_module
+                        from app.config import settings
+                        conn = sqlite_module.connect(str(settings.db_path))
+                        conn.execute("UPDATE research_hashes SET interaction_id = ? WHERE md5 = ?", (interaction_id, md5_hash))
+                        conn.commit()
+                        conn.close()
+                    
+                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content':f'Gemini started reasoning with id: {interaction_id}'}, finish_reason=None)]).model_dump_json()}\n\n"
+                
+                if event.event_id:
+                    last_event_id = event.event_id
+                
+                if event.event_type == "content.delta":
+                    if event.delta.type == "text":
+                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'content':event.delta.text}, finish_reason=None)]).model_dump_json()}\n\n"
+                    elif event.delta.type == "thought_summary":
+                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': event.delta.content.text}, finish_reason=None)]).model_dump_json()}\n\n"
+                
+                if event.event_type in ['interaction.complete', 'error']:
+                    is_complete = True
+                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={}, finish_reason='stop')]).model_dump_json()}\n\n"
+            
+            if not is_complete and interaction_id:
+                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connection lost, resuming from event {last_event_id}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+                kwargs = {"id": interaction_id, "stream": True}
+                if last_event_id:
+                    kwargs["last_event_id"] = last_event_id
+                stream = await self.client.aio.interactions.get(**kwargs)
+        
+        yield "data: [DONE]\n\n"
+
     async def create_stream_completion(
         self,
-        request: ChatCompletionRequest
+        request: ChatCompletionRequest,
+        db: sqlite3.Connection | None = None,
+        previous_completion: PreviousCompletion | None = None
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion."""
-        if not self.available or not self.client:
-            raise ValueError("Google API key not configured")
+
+        if "deep-research" in request.model.lower():
+            md5_hash = previous_completion.md5 if previous_completion else None
+            async for chunk in self._create_interaction_stream(request, db, previous_completion, md5_hash):
+                yield chunk
+            return
 
         system_message = self._extract_system_message(request.messages)
         contents = self._convert_messages(request.messages)
         
-        # Build generation config
         config = types.GenerateContentConfig(
             temperature=request.temperature,
             top_p=request.top_p,
@@ -336,7 +494,6 @@ class GeminiClient:
             system_instruction=system_message,
         )
         
-        # Add stop sequences if provided
         if request.stop:
             stop_sequences = [request.stop] if isinstance(request.stop, str) else request.stop
             config.stop_sequences = stop_sequences
@@ -345,13 +502,11 @@ class GeminiClient:
         created = int(time.time())
 
         try:
-            # Send meta-reasoning: Initiating connection
             yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Google Gemini API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
             
-            # Stream the response
             response_stream = self.client.models.generate_content_stream(
                 model=request.model,
-                contents=contents, # Keep as is, list[Any] should be compatible
+                contents=contents,
                 config=config
             )
             
@@ -365,10 +520,9 @@ class GeminiClient:
             
             for chunk in response_stream:
                 if first_chunk:
-                    # Send meta-reasoning: First response received
                     yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
                     first_chunk = False
-                # Extract text delta from chunk
+
                 if hasattr(chunk, 'text') and chunk.text:
                     content_delta = chunk.text
                     
@@ -376,10 +530,8 @@ class GeminiClient:
                     is_thinking_model = "thinking" in request.model.lower()
                     
                     if is_thinking_model:
-                        # Parse thinking content from <thinking> tags
                         if "<thinking>" in content_delta:
                             in_thinking_block = True
-                            # Extract any text before <thinking>
                             before_thinking = content_delta.split("<thinking>")[0]
                             if before_thinking:
                                 response_chunk = ChatCompletionChunk(
@@ -400,7 +552,6 @@ class GeminiClient:
                             if "</thinking>" in after_thinking:
                                 thinking_content = after_thinking.split("</thinking>")[0]
                                 in_thinking_block = False
-                                # Send thinking content
                                 response_chunk = ChatCompletionChunk(
                                     id=completion_id,
                                     created=created,
@@ -414,7 +565,6 @@ class GeminiClient:
                                     ]
                                 )
                                 yield f"data: {response_chunk.model_dump_json()}\n\n"
-                                # Send any content after </thinking>
                                 after_closing = after_thinking.split("</thinking>")[1] if len(after_thinking.split("</thinking>")) > 1 else ""
                                 if after_closing:
                                     response_chunk = ChatCompletionChunk(
@@ -471,11 +621,9 @@ class GeminiClient:
                                 yield f"data: {response_chunk.model_dump_json()}\n\n"
                             continue
                         elif in_thinking_block:
-                            # Accumulate thinking content
                             thinking_buffer.append(content_delta)
                             continue
                     
-                    # Regular content (not in thinking block or not a thinking model)
                     response_chunk = ChatCompletionChunk(
                         id=completion_id,
                         created=created,
@@ -490,7 +638,6 @@ class GeminiClient:
                     )
                     yield f"data: {response_chunk.model_dump_json()}\n\n"
             
-            # Send final stop chunk
             final_chunk = ChatCompletionChunk(
                 id=completion_id,
                 created=created,

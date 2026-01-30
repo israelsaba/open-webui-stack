@@ -1,11 +1,12 @@
 import logging
 import time
+import sqlite3
 from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import Any
 
 from anthropic import Anthropic, AsyncAnthropic
-from anthropic.types import Message, MessageStreamEvent
+from anthropic.types import Message
+from anthropic.types.message_stream_event import MessageStreamEvent
 
 from app.config import settings
 from app.models import (
@@ -16,6 +17,7 @@ from app.models import (
     ChatCompletionStreamChoice,
     ChatMessage,
     ModelInfo,
+    PreviousCompletion,
     Usage,
 )
 
@@ -26,9 +28,16 @@ class AnthropicClient:
     """Client for interacting with Anthropic API."""
     
     def __init__(self) -> None:
-        api_key = settings.anthropic_api_key.get_secret_value()
-        self.client = Anthropic(api_key=api_key)
-        self.async_client = AsyncAnthropic(api_key=api_key)
+        if settings.anthropic_api_key:
+            api_key = settings.anthropic_api_key.get_secret_value()
+            self.client = Anthropic(api_key=api_key)
+            self.async_client = AsyncAnthropic(api_key=api_key)
+            self.available = True
+        else:
+            logger.warning("Anthropic API key not configured. Anthropic models will be unavailable.")
+            self.available = False
+            self.client = None
+            self.async_client = None
     
     async def list_models(self, limit: int = 100) -> list[ModelInfo]:
         """
@@ -40,25 +49,23 @@ class AnthropicClient:
         Returns:
             List of ModelInfo objects in OpenAI-compatible format
         """
+        if not self.available:
+            logger.debug("Anthropic API key not configured, returning hardcoded models list")
+            return self._get_hardcoded_models()
+
         try:
-            # Try to use the models API if available
             if hasattr(self.async_client, 'models'):
                 response = await self.async_client.models.list(limit=limit)
                 
-                # Convert Anthropic format to OpenAI-compatible format
                 models = []
                 for model in response.data:
-                    # Parse ISO 8601 datetime and convert to Unix timestamp
                     try:
                         created_at_str = str(model.created_at)
-                        # Handle both datetime objects and strings
                         if 'T' in created_at_str or '-' in created_at_str:
                             created_timestamp = int(datetime.fromisoformat(created_at_str.replace('Z', '+00:00')).timestamp())
                         else:
-                            # If it's already a timestamp
                             created_timestamp = int(created_at_str)
                     except (ValueError, AttributeError):
-                        # Fallback to current time if parsing fails
                         created_timestamp = int(time.time())
                     
                     models.append(ModelInfo(
@@ -67,7 +74,7 @@ class AnthropicClient:
                         owned_by="anthropic"
                     ))
                 
-                logger.info(f"Successfully fetched {len(models)} models from Anthropic API")
+                logger.debug(f"Successfully fetched {len(models)} models from Anthropic API")
                 return models
             else:
                 logger.warning("Models API not available in this SDK version, using hardcoded list")
@@ -86,7 +93,6 @@ class AnthropicClient:
         """
         base_timestamp = int(time.time())
         
-        # Hardcoded list of known Anthropic models (updated from actual API)
         model_ids = [
             "claude-opus-4-5-20251101",
             "claude-haiku-4-5-20251001",
@@ -118,11 +124,17 @@ class AnthropicClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
+        if not self.available:
+            hardcoded_models = self._get_hardcoded_models()
+            for model in hardcoded_models:
+                if model.id == model_id:
+                    return model
+            raise ValueError(f"Model {model_id} not found")
+
         try:
             if hasattr(self.async_client, 'models'):
                 response = await self.async_client.models.retrieve(model_id)
                 
-                # Parse ISO 8601 datetime and convert to Unix timestamp
                 created_timestamp = int(datetime.fromisoformat(response.created_at.replace('Z', '+00:00')).timestamp())
                 
                 return ModelInfo(
@@ -131,7 +143,6 @@ class AnthropicClient:
                     owned_by="anthropic"
                 )
             else:
-                # Fallback: return model info from hardcoded list
                 hardcoded_models = self._get_hardcoded_models()
                 for model in hardcoded_models:
                     if model.id == model_id:
@@ -139,7 +150,6 @@ class AnthropicClient:
                 raise ValueError(f"Model {model_id} not found")
         except Exception as e:
             logger.warning(f"Failed to fetch model {model_id} from API: {e}")
-            # Fallback: return model info from hardcoded list
             hardcoded_models = self._get_hardcoded_models()
             for model in hardcoded_models:
                 if model.id == model_id:
@@ -157,13 +167,10 @@ class AnthropicClient:
         """
         model_lower = model.lower()
         
-        # Claude 3.7+ Sonnet models
         if "sonnet" in model_lower:
-            # Extract version if possible
             if "3-7" in model_lower or "3.7" in model_lower:
                 return True
         
-        # Claude 4+ models (all variants support thinking)
         if any(prefix in model_lower for prefix in ["claude-4", "claude-opus-4", "claude-sonnet-4"]):
             return True
         
@@ -196,31 +203,31 @@ class AnthropicClient:
         request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         """Create a non-streaming chat completion."""
+        if not self.available or not self.async_client:
+            raise ValueError("Anthropic API key not configured")
+
         system_message, anthropic_messages = self._convert_messages(request.messages)
         
-        # Build kwargs for Anthropic API
         kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": anthropic_messages,
             "max_tokens": request.max_tokens or 4096,
         }
         
-        # Enable extended thinking for supported models
         if self._supports_extended_thinking(request.model):
-            # Map reasoning_effort to thinking budget
             effort_to_budget = {
                 "low": 2000,
                 "medium": 5000,
                 "high": 10000,
             }
             
-            # Use reasoning_effort if provided, otherwise default to medium
             effort = (request.reasoning_effort or "medium").lower()
             thinking_budget = effort_to_budget.get(effort, 5000)
             
-            # Cap at max_tokens if specified
             if request.max_tokens:
                 thinking_budget = min(thinking_budget, request.max_tokens)
+            else:
+                kwargs["max_tokens"]=int(thinking_budget*1.5)
             
             kwargs["thinking"] = {
                 "type": "enabled",
@@ -238,7 +245,6 @@ class AnthropicClient:
         
         response: Message = await self.async_client.messages.create(**kwargs)
         
-        # Convert to OpenAI format
         completion_id = f"chatcmpl-{response.id}"
         created = int(time.time())
         
@@ -248,7 +254,6 @@ class AnthropicClient:
                 block.text for block in response.content if hasattr(block, "text")
             )
         
-        # Map Anthropic stop_reason to OpenAI finish_reason
         stop_reason_str = str(response.stop_reason) if response.stop_reason else "end_turn"
         if stop_reason_str == "max_tokens":
             mapped_finish_reason: str = "length"
@@ -277,35 +282,38 @@ class AnthropicClient:
     
     async def create_stream_completion(
         self,
-        request: ChatCompletionRequest
+        request: ChatCompletionRequest,
+        db: sqlite3.Connection | None = None,
+        previous_completion: PreviousCompletion | None = None
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion with reasoning support."""
+
+        if not self.available or not self.async_client:
+            raise ValueError("Anthropic API key not configured")
+
         system_message, anthropic_messages = self._convert_messages(request.messages)
         
-        # Build kwargs for Anthropic API
         kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": anthropic_messages,
             "max_tokens": request.max_tokens or 4096,
         }
         
-        # Enable extended thinking for supported models
         thinking_budget = 0
         if self._supports_extended_thinking(request.model):
-            # Map reasoning_effort to thinking budget
             effort_to_budget = {
                 "low": 2000,
                 "medium": 5000,
-                "high": 10000,
+                "high": 16000,
             }
             
-            # Use reasoning_effort if provided, otherwise default to medium
             effort = (request.reasoning_effort or "medium").lower()
             thinking_budget = effort_to_budget.get(effort, 5000)
             
-            # Cap at max_tokens if specified
             if request.max_tokens:
                 thinking_budget = min(thinking_budget, request.max_tokens)
+            else:
+                kwargs["max_tokens"] = int(thinking_budget*1.5)
             
             kwargs["thinking"] = {
                 "type": "enabled",
@@ -324,18 +332,15 @@ class AnthropicClient:
         completion_id = f"chatcmpl-{int(time.time() * 1000)}"
         created = int(time.time())
         
-        # Send meta-reasoning: Initiating connection
         thinking_status = f" (extended thinking: {request.reasoning_effort or 'medium'} effort, {thinking_budget} tokens)" if self._supports_extended_thinking(request.model) else ""
         yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Anthropic API with model {request.model}{thinking_status}...'}, finish_reason=None)]).model_dump_json()}\n\n"
         
         async with self.async_client.messages.stream(**kwargs) as stream:
-            # Send meta-reasoning: Stream started
             yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
             
             first_event = True
             async for event in stream:
                 if first_event:
-                    # Send meta-reasoning: First response received
                     yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
                     first_event = False
                 
@@ -357,7 +362,6 @@ class AnthropicClient:
         """Convert Anthropic streaming event to OpenAI format with reasoning support."""
         from anthropic.lib.streaming._types import ThinkingEvent, TextEvent, MessageStopEvent
         
-        # Handle thinking/reasoning content
         if isinstance(event, ThinkingEvent):
             return ChatCompletionChunk(
                 id=completion_id,
@@ -372,7 +376,6 @@ class AnthropicClient:
                 ]
             )
         
-        # Handle regular text content
         elif isinstance(event, TextEvent):
             return ChatCompletionChunk(
                 id=completion_id,
@@ -387,7 +390,6 @@ class AnthropicClient:
                 ]
             )
         
-        # Handle message stop
         elif isinstance(event, MessageStopEvent):
             return ChatCompletionChunk(
                 id=completion_id,
@@ -443,5 +445,4 @@ class AnthropicClient:
         return None
 
 
-# Global client instance
 anthropic_client = AnthropicClient()
