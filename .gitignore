@@ -61,3 +61,5 @@ data/
 
 # Yoyo lock files
 .yoyo-lock
+
+*.log

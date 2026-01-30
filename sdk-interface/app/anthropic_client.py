@@ -1,6 +1,7 @@
 import logging
 import time
 import sqlite3
+from datetime import datetime
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -32,10 +33,8 @@ class AnthropicClient:
             api_key = settings.anthropic_api_key.get_secret_value()
             self.client = Anthropic(api_key=api_key)
             self.async_client = AsyncAnthropic(api_key=api_key)
-            self.available = True
         else:
             logger.warning("Anthropic API key not configured. Anthropic models will be unavailable.")
-            self.available = False
             self.client = None
             self.async_client = None
     
@@ -49,70 +48,32 @@ class AnthropicClient:
         Returns:
             List of ModelInfo objects in OpenAI-compatible format
         """
-        if not self.available:
-            logger.debug("Anthropic API key not configured, returning hardcoded models list")
-            return self._get_hardcoded_models()
 
-        try:
-            if hasattr(self.async_client, 'models'):
-                response = await self.async_client.models.list(limit=limit)
+        if hasattr(self.async_client, 'models'):
+            response = await self.async_client.models.list(limit=limit)
+            
+            models = []
+            for model in response.data:
+                try:
+                    created_at_str = str(model.created_at)
+                    if 'T' in created_at_str or '-' in created_at_str:
+                        created_timestamp = int(datetime.fromisoformat(created_at_str.replace('Z', '+00:00')).timestamp())
+                    else:
+                        created_timestamp = int(created_at_str)
+                except (ValueError, AttributeError):
+                    created_timestamp = int(time.time())
                 
-                models = []
-                for model in response.data:
-                    try:
-                        created_at_str = str(model.created_at)
-                        if 'T' in created_at_str or '-' in created_at_str:
-                            created_timestamp = int(datetime.fromisoformat(created_at_str.replace('Z', '+00:00')).timestamp())
-                        else:
-                            created_timestamp = int(created_at_str)
-                    except (ValueError, AttributeError):
-                        created_timestamp = int(time.time())
-                    
-                    models.append(ModelInfo(
-                        id=model.id,
-                        created=created_timestamp,
-                        owned_by="anthropic"
-                    ))
-                
-                logger.debug(f"Successfully fetched {len(models)} models from Anthropic API")
-                return models
-            else:
-                logger.warning("Models API not available in this SDK version, using hardcoded list")
-                return self._get_hardcoded_models()
-        except Exception as e:
-            logger.warning(f"Failed to fetch models from Anthropic API: {e}, using hardcoded list")
-            return self._get_hardcoded_models()
+                models.append(ModelInfo(
+                    id=model.id,
+                    created=created_timestamp,
+                    owned_by="anthropic"
+                ))
+            
+            logger.debug(f"Successfully fetched {len(models)} models from Anthropic API")
+            return models
+        else:
+            raise ValueError("Anthropic models' list came empty")
     
-    @staticmethod
-    def _get_hardcoded_models() -> list[ModelInfo]:
-        """
-        Return a hardcoded list of available models as fallback.
-        
-        Returns:
-            List of ModelInfo objects for known Anthropic models
-        """
-        base_timestamp = int(time.time())
-        
-        model_ids = [
-            "claude-opus-4-5-20251101",
-            "claude-haiku-4-5-20251001",
-            "claude-sonnet-4-5-20250929",
-            "claude-opus-4-1-20250805",
-            "claude-opus-4-20250514",
-            "claude-sonnet-4-20250514",
-            "claude-3-7-sonnet-20250219",
-            "claude-3-5-haiku-20241022",
-            "claude-3-haiku-20240307",
-        ]
-        
-        return [
-            ModelInfo(
-                id=model_id,
-                created=base_timestamp,
-                owned_by="anthropic"
-            )
-            for model_id in model_ids
-        ]
     
     async def get_model(self, model_id: str) -> ModelInfo:
         """
@@ -124,37 +85,19 @@ class AnthropicClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
-        if not self.available:
-            hardcoded_models = self._get_hardcoded_models()
-            for model in hardcoded_models:
-                if model.id == model_id:
-                    return model
-            raise ValueError(f"Model {model_id} not found")
 
-        try:
-            if hasattr(self.async_client, 'models'):
-                response = await self.async_client.models.retrieve(model_id)
-                
-                created_timestamp = int(datetime.fromisoformat(response.created_at.replace('Z', '+00:00')).timestamp())
-                
-                return ModelInfo(
-                    id=response.id,
-                    created=created_timestamp,
-                    owned_by="anthropic"
-                )
-            else:
-                hardcoded_models = self._get_hardcoded_models()
-                for model in hardcoded_models:
-                    if model.id == model_id:
-                        return model
-                raise ValueError(f"Model {model_id} not found")
-        except Exception as e:
-            logger.warning(f"Failed to fetch model {model_id} from API: {e}")
-            hardcoded_models = self._get_hardcoded_models()
-            for model in hardcoded_models:
-                if model.id == model_id:
-                    return model
-            raise ValueError(f"Model {model_id} not found")
+        if hasattr(self.async_client, 'models'):
+            response = await self.async_client.models.retrieve(model_id)
+            
+            created_timestamp = int(datetime.fromisoformat(response.created_at.replace('Z', '+00:00')).timestamp())
+            
+            return ModelInfo(
+                id=response.id,
+                created=created_timestamp,
+                owned_by="anthropic"
+            )
+        raise ValueError(f"Model {model_id} not found")
+
     
     @staticmethod
     def _supports_extended_thinking(model: str) -> bool:
@@ -203,8 +146,6 @@ class AnthropicClient:
         request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         """Create a non-streaming chat completion."""
-        if not self.available or not self.async_client:
-            raise ValueError("Anthropic API key not configured")
 
         system_message, anthropic_messages = self._convert_messages(request.messages)
         
@@ -224,10 +165,13 @@ class AnthropicClient:
             effort = (request.reasoning_effort or "medium").lower()
             thinking_budget = effort_to_budget.get(effort, 5000)
             
-            if request.max_tokens:
+            # Ensure thinking budget meets minimum requirement of 1024
+            thinking_budget = max(thinking_budget, 1024)
+            
+            if request.max_tokens and request.max_tokens >= 1024:
                 thinking_budget = min(thinking_budget, request.max_tokens)
             else:
-                kwargs["max_tokens"]=int(thinking_budget*1.5)
+                kwargs["max_tokens"] = int(thinking_budget * 1.5)
             
             kwargs["thinking"] = {
                 "type": "enabled",
@@ -288,9 +232,6 @@ class AnthropicClient:
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion with reasoning support."""
 
-        if not self.available or not self.async_client:
-            raise ValueError("Anthropic API key not configured")
-
         system_message, anthropic_messages = self._convert_messages(request.messages)
         
         kwargs: dict[str, Any] = {
@@ -310,10 +251,13 @@ class AnthropicClient:
             effort = (request.reasoning_effort or "medium").lower()
             thinking_budget = effort_to_budget.get(effort, 5000)
             
-            if request.max_tokens:
+            # Ensure thinking budget meets minimum requirement of 1024
+            thinking_budget = max(thinking_budget, 1024)
+            
+            if request.max_tokens and request.max_tokens >= 1024:
                 thinking_budget = min(thinking_budget, request.max_tokens)
             else:
-                kwargs["max_tokens"] = int(thinking_budget*1.5)
+                kwargs["max_tokens"] = int(thinking_budget * 1.5)
             
             kwargs["thinking"] = {
                 "type": "enabled",

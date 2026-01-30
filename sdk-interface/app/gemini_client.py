@@ -32,10 +32,8 @@ class GeminiClient:
     def __init__(self) -> None:
         if settings.google_api_key:
             self.client = genai.Client(api_key=settings.google_api_key.get_secret_value())
-            self.available = True
         else:
             logger.warning("Google API key not configured. Gemini models will be unavailable.")
-            self.available = False
             self.client = None
 
     async def list_models(self, limit: int = 100) -> list[ModelInfo]:
@@ -48,8 +46,8 @@ class GeminiClient:
         Returns:
             List of ModelInfo objects in OpenAI-compatible format
         """
-        if not self.available or not settings.google_api_key:
-            return []
+        if not settings.google_api_key:
+            raise ValueError("Google API key not configured")
 
         try:
             models = []
@@ -83,69 +81,15 @@ class GeminiClient:
                             owned_by="google"
                         ))
             
-            # If no models were returned, fall back to hardcoded list
             if len(models) == 0:
-                logger.warning(
-                    f"Gemini API returned {total_models_from_api} total models but 0 support generateContent. "
-                    f"Falling back to hardcoded model list."
-                )
-                return self._get_hardcoded_models()
+                raise ValueError("No corresponding models for Gemini")
             
             logger.debug(f"Successfully fetched {len(models)} models from Gemini API")
             return models[:limit]
         except Exception as e:
-            logger.warning(f"Failed to fetch models from Gemini API: {e}, using hardcoded list")
-            return self._get_hardcoded_models()
+            logger.error(f"Failed to fetch models from Gemini API: {e}", exc_info=True)
+            raise
 
-    @staticmethod
-    def _get_hardcoded_models() -> list[ModelInfo]:
-        """
-        Return a hardcoded list of available models as fallback.
-        
-        This list should be updated periodically to include new models.
-        The REST API call above should dynamically fetch all available models,
-        but this serves as a fallback if the API is unavailable.
-        
-        Returns:
-            List of ModelInfo objects for known Gemini models
-        """
-        base_timestamp = int(time.time())
-        
-        model_ids = [
-            # Deep Research models (virtual models that use deep research endpoint)
-            "gemini-2.0-flash-thinking-deep-research",
-            # Gemini 2.0 models (experimental)
-            "gemini-2.0-flash-exp",
-            "gemini-2.0-flash-thinking-exp-01-21",
-            "gemini-2.0-flash-thinking-exp",
-            "gemini-2.0-pro-exp",
-            # Gemini 1.5 models
-            "gemini-1.5-pro-latest",
-            "gemini-1.5-pro-002",
-            "gemini-1.5-pro-001",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash-002",
-            "gemini-1.5-flash-001",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-8b-latest",
-            "gemini-1.5-flash-8b-001",
-            "gemini-1.5-flash-8b",
-            # Gemini 1.0 models
-            "gemini-1.0-pro-latest",
-            "gemini-1.0-pro-001",
-            "gemini-1.0-pro",
-            "gemini-1.0-pro-vision-latest",
-        ]
-        
-        return [
-            ModelInfo(
-                id=model_id,
-                created=base_timestamp,
-                owned_by="google"
-            )
-            for model_id in model_ids
-        ]
 
     async def get_model(self, model_id: str) -> ModelInfo:
         """
@@ -157,11 +101,10 @@ class GeminiClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
-        if not self.available or not self.client:
+        if not self.client:
             raise ValueError("Google API key not configured")
 
         try:
-            # Handle "gemini-" prefix if passed without "models/"
             full_model_name = f"models/{model_id}" if not model_id.startswith("models/") else model_id
             
             model = self.client.models.get(model=full_model_name)
@@ -172,12 +115,7 @@ class GeminiClient:
                 owned_by="google"
             )
         except Exception as e:
-            logger.warning(f"Failed to fetch model {model_id} from API: {e}")
-            # Fallback
-            hardcoded_models = self._get_hardcoded_models()
-            for model in hardcoded_models:
-                if model.id == model_id:
-                    return model
+            logger.error(f"Failed to fetch model {model_id}: {e}", exc_info=True)
             raise ValueError(f"Model {model_id} not found")
 
     @staticmethod

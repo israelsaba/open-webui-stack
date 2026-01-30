@@ -21,6 +21,7 @@ from app.models import (
     PreviousCompletion
 )
 
+from openai.types.model import Model as ModelSchema 
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -56,8 +57,6 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
                         log_details["body"] = body_str
                 except UnicodeDecodeError:
                     log_details["body"] = f"<binary data: {len(body_bytes)} bytes>"
-            
-        
         response = await call_next(request)
         
         log_msg = f'{client_host}:{client_port} - "{request.method} {request.url.path} HTTP/1.1" {response.status_code}'
@@ -141,43 +140,81 @@ async def list_models() -> ModelsResponse:
         )
 
 
-@app.get("/v1/models/{model_id}")
-async def get_model(model_id: str) -> ModelInfo:
-    """Get a specific model by ID from any provider in OpenAI format."""
-    try:
-        try:
-            return await anthropic_client.get_model(model_id)
-        except ValueError:
-            try:
-                return await gemini_client.get_model(model_id)
-            except ValueError:
-                try:
-                    return await grok_client.get_model(model_id)
-                except ValueError:
-                    raise ValueError(f"Model {model_id} not found in any provider")
+#     except ValueError as e:
+#         logger.warning(f"Model {model_id} not found: {e}")
+#         raise HTTPException(
+#             status_code=404,
+#             detail=str(e)
+#         )
+#     except Exception as e:
+#         logger.error(f"Error fetching model {model_id}: {e}", exc_info=True)
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Error fetching model {model_id}: {str(e)}"
+#         )
+# @app.get("/v1/models/{model_id}")
+# async def get_model(model_id: str) -> ModelInfo:
+#     """Get a specific model by ID from any provider in OpenAI format."""
+#     try:
+#         try:
+#             return await anthropic_client.get_model(model_id)
+#         except ValueError:
+#             try:
+#                 return await gemini_client.get_model(model_id)
+#             except ValueError:
+#                 try:
+#                     return await grok_client.get_model(model_id)
+#                 except ValueError:
+#                     raise ValueError(f"Model {model_id} not found in any provider")
+#
+#     except ValueError as e:
+#         logger.warning(f"Model {model_id} not found: {e}")
+#         raise HTTPException(
+#             status_code=404,
+#             detail=str(e)
+#         )
+#     except Exception as e:
+#         logger.error(f"Error fetching model {model_id}: {e}", exc_info=True)
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Error fetching model {model_id}: {str(e)}"
+#         )
 
-    except ValueError as e:
-        logger.warning(f"Model {model_id} not found: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error fetching model {model_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching model {model_id}: {str(e)}"
-        )
 
 
-def get_client(request: ChatCompletionRequest):
-    model_lower = request.model.lower()
-    if "gemini" in model_lower or "gemma" in model_lower or "deep-research" in model_lower:
-        return gemini_client
-    elif "grok" in model_lower:
-        return grok_client
-    else:
+async def get_client(request: ChatCompletionRequest):
+    """Get the appropriate client for the requested model."""
+    model_id = request.model.lower()
+    
+    # Get available models from cache
+    available_models = await get_available_models()
+    
+    # Check if model exists in available models
+    if model_id not in available_models:
+        # Refresh cache and try again
+        global _model_cache
+        _model_cache = None
+        available_models = await get_available_models()
+        
+        if model_id not in available_models:
+            raise ValueError(f"Model {model_id} not found in any provider")
+    
+    # Try each client to see which one has this model
+    anthropic_models = await anthropic_client.list_models()
+    if any(m.id.lower() == model_id for m in anthropic_models):
         return anthropic_client
+    
+    gemini_models = await gemini_client.list_models()
+    if any(m.id.lower() == model_id for m in gemini_models):
+        return gemini_client
+    
+    grok_models = await grok_client.list_models()
+    if any(m.id.lower() == model_id for m in grok_models):
+        return grok_client
+    
+    raise ValueError(f"Model {model_id} not found in any provider")
+
+
 
 def needs_previous_checking(
     request: ChatCompletionRequest,

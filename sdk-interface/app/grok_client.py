@@ -31,10 +31,9 @@ class GrokClient:
                 api_key=settings.grok_api_key.get_secret_value(),
                 base_url="https://api.x.ai/v1"
             )
-            self.available = True
         else:
             logger.warning("Grok API key not configured. Grok models will be unavailable.")
-            self.available = False
+            self.client = None
 
     async def list_models(self, limit: int = 100) -> list[ModelInfo]:
         """
@@ -46,11 +45,8 @@ class GrokClient:
         Returns:
             List of ModelInfo objects in OpenAI-compatible format
         """
-        if not self.available:
-            # Return hardcoded models even if API key is not configured
-            # This allows the models to be "seen" by the system, but attempts to use them will fail
-            logger.debug("Grok API key not configured, returning hardcoded models list")
-            return self._get_hardcoded_models()
+        if not self.client:
+            raise ValueError("Grok API key not configured")
 
         try:
             response = await self.client.models.list()
@@ -66,36 +62,9 @@ class GrokClient:
             logger.debug(f"Successfully fetched {len(models)} models from Grok API")
             return models
         except Exception as e:
-            logger.warning(f"Failed to fetch models from Grok API: {e}, using hardcoded list")
-            return self._get_hardcoded_models()
+            logger.error(f"Failed to fetch models from Grok API: {e}", exc_info=True)
+            raise
 
-    @staticmethod
-    def _get_hardcoded_models() -> list[ModelInfo]:
-        """
-        Return a hardcoded list of available models as fallback.
-        
-        Returns:
-            List of ModelInfo objects for known Grok models
-        """
-        base_timestamp = int(time.time())
-        
-        model_ids = [
-            "grok-2-latest",
-            "grok-2",
-            "grok-2-vision-latest",
-            "grok-2-vision-1212",
-            "grok-beta",
-            "grok-vision-beta"
-        ]
-        
-        return [
-            ModelInfo(
-                id=model_id,
-                created=base_timestamp,
-                owned_by="xai"
-            )
-            for model_id in model_ids
-        ]
 
     async def get_model(self, model_id: str) -> ModelInfo:
         """
@@ -107,13 +76,8 @@ class GrokClient:
         Returns:
             ModelInfo object in OpenAI-compatible format
         """
-        # Check hardcoded models first or if API not available
-        if not self.available:
-             hardcoded_models = self._get_hardcoded_models()
-             for model in hardcoded_models:
-                 if model.id == model_id:
-                     return model
-             raise ValueError("Grok API key not configured and model not found in hardcoded list")
+        if not self.client:
+            raise ValueError("Grok API key not configured")
 
         try:
             model = await self.client.models.retrieve(model_id)
@@ -124,12 +88,7 @@ class GrokClient:
                 owned_by=model.owned_by
             )
         except Exception as e:
-            logger.warning(f"Failed to fetch model {model_id} from API: {e}")
-            # Fallback
-            hardcoded_models = self._get_hardcoded_models()
-            for model in hardcoded_models:
-                if model.id == model_id:
-                    return model
+            logger.error(f"Failed to fetch model {model_id} from API: {e}", exc_info=True)
             raise ValueError(f"Model {model_id} not found")
 
     async def create_completion(
@@ -137,7 +96,7 @@ class GrokClient:
         request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         """Create a non-streaming chat completion."""
-        if not self.available:
+        if not self.client:
             raise ValueError("Grok API key not configured")
 
         try:
@@ -200,7 +159,7 @@ class GrokClient:
         previous_completion: PreviousCompletion | None = None
     ) -> AsyncIterator[str]:
         """Create a streaming chat completion."""
-        if not self.available:
+        if not self.client:
             raise ValueError("Grok API key not configured")
 
         try:
