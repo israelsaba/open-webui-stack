@@ -378,6 +378,12 @@ class GeminiClient:
             try:
                 # Wait for next event with timeout equal to polling interval
                 logger.debug(f"Waiting for next event (timeout: {INTERACTION_POLL_INTERVAL}s)...")
+                
+                # If stream_iter is None (reconnection failed), just sleep and poll
+                if stream_iter is None:
+                    await asyncio.sleep(INTERACTION_POLL_INTERVAL)
+                    raise asyncio.TimeoutError()  # Trigger polling
+                    
                 event = await asyncio.wait_for(stream_iter.__anext__(), timeout=INTERACTION_POLL_INTERVAL)
                 
                 logger.debug(f"interaction event: {event}")
@@ -482,9 +488,9 @@ class GeminiClient:
                                     # Continue the loop to start listening to the new stream
                                     continue
                                 except asyncio.TimeoutError:
-                                    logger.warning("Reconnection timed out after 10s, will retry on next poll cycle")
-                                    # Don't continue, let it fall through to keep trying
-                                    await asyncio.sleep(1)
+                                    logger.warning("Reconnection timed out after 10s, will keep polling status without stream")
+                                    # Reconnection failed - set stream_iter to None to trigger timeout-only mode
+                                    stream_iter = None
                                     continue
                             elif status in ["completed", "failed", "cancelled"]:
                                 yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Interaction {status_msg}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
