@@ -1,37 +1,65 @@
-# Open WebUI + Multi-Provider AI Integration Stack
+# Open WebUI + Google Deep Research Integration Stack
 
-A complete Docker Compose stack that runs **Open WebUI** with **Anthropic Claude** and **xAI Grok** models via an OpenAI-compatible API bridge. This setup provides a self-hosted, feature-rich chat interface powered by advanced AI capabilities from multiple providers.
+A complete Docker Compose stack featuring **Google's Deep Research** with persistent session resumption, integrated with **Open WebUI** for a powerful research-focused AI experience. Also supports Anthropic Claude and xAI Grok models via an OpenAI-compatible API bridge.
+
+## 🔬 Deep Research - Primary Feature
+
+**Google Deep Research** is an advanced AI research agent that provides comprehensive, multi-step analysis:
+- **Persistent Research Sessions**: Automatic interaction resumption for long-running research
+- **Multi-Step Reasoning**: Extended thinking with transparent research process
+- **Background Processing**: Research continues even if connection drops
+- **Thought Summaries**: Real-time insights into the research methodology
+- **OpenAI-Compatible**: Works seamlessly with Open WebUI and other OpenAI-compatible clients
+
+### ⚠️ Important: Rate Limits & Required Concessions
+
+Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your quota:
+
+**In Open WebUI Settings:**
+1. Go to **Settings** → **Interface**
+2. **Disable "Auto-Generate Title"** - This would consume a Deep Research request just to generate a chat title
+3. **Disable "Auto-Follow-Up Prompts"** - This would consume a Deep Research request for suggestion generation
+
+**Why this matters:**
+- Deep Research is designed for comprehensive, time-intensive analysis (30-60+ seconds per query)
+- Auto-title and auto-follow-up features make rapid API calls that waste your limited quota
+- Session resumption allows you to continue research without consuming additional quota
 
 ## 🚀 Features
 
 ### Core Functionality
 
-- **OpenAI-Compatible API Bridge**: FastAPI-based service that translates OpenAI API requests to Anthropic and xAI API formats
+- **🔬 Google Deep Research Integration**: First-class support with automatic session resumption
+- **OpenAI-Compatible API Bridge**: FastAPI-based service for multiple AI providers
 - **Open WebUI Interface**: Modern, feature-rich web UI for interacting with AI models
 - **Multi-Provider Support**: 
-  - **Anthropic Claude**: Access to the latest Claude models, dynamically fetched from Anthropic's API
-  - **xAI Grok**: Access to the latest Grok models, dynamically fetched from xAI's API
-  - Models are automatically discovered and updated without code changes
-- **Streaming Support**: Real-time streaming responses for a natural chat experience
+  - **Google Deep Research & Gemini**: Advanced research agent with thinking models
+  - **Anthropic Claude**: Latest Claude models with extended context
+  - **xAI Grok**: Latest Grok models
+- **Streaming Support**: Real-time streaming responses with reasoning content
 - **Bearer Token Authentication**: Secure API access with custom token management
 - **Docker-based Deployment**: Easy setup and management with Docker Compose
-- **Auto-updates**: Integrated Watchtower for automatic container updates
 
-### Open WebUI Capabilities
+### Deep Research Capabilities
 
-With this stack, you get all the powerful features of Open WebUI integrated with multiple AI providers:
+- **Persistent Sessions**: Research sessions stored in SQLite database
+- **Automatic Resumption**: Continue research without starting over (doesn't consume RPM)
+- **Connection Recovery**: Auto-reconnects if connection drops
+- **Session Tracking**: Clear SDK messages showing session status
+- **MD5-based Session Matching**: Same query resumes existing research
 
-- **RAG (Retrieval Augmented Generation)**: Upload documents and chat with your data using AI models
-  - Uses OpenAI-compatible embedding engine for document vectorization
+### Open WebUI Integration
+
+- **RAG (Retrieval Augmented Generation)**: Upload documents and chat with your data
 - **Speech-to-Text**: Audio transcription powered by OpenAI's STT engine
-- **Persistent Storage**: Conversation history and uploaded documents are preserved
-- **Multi-user Support**: Bearer token authentication allows multiple users with separate access
-- **Health Monitoring**: Built-in health checks and monitoring for all services
+- **Persistent Storage**: Conversation history and uploaded documents preserved
+- **Multi-user Support**: Bearer token authentication for multiple users
 
 ## 📋 Prerequisites
 
 - Docker and Docker Compose installed
-- At least one API key from supported providers:
+- **Google API key** (required for Deep Research) - [Get one here](https://aistudio.google.com/app/apikey)
+- Optional API keys:
   - Anthropic API key ([get one here](https://console.anthropic.com/))
   - xAI API key ([get one here](https://console.x.ai/))
 
@@ -43,99 +71,80 @@ With this stack, you get all the powerful features of Open WebUI integrated with
    cd open-webui-stack
    ```
 
-2. **Create the required `.env` files**
-
-   Main `.env` file (root directory):
+2. **Set up the SDK interface**
    ```bash
-   # Add any Open WebUI specific configurations here
+   cd sdk-interface
+   cp .env.example .env
+   # Edit .env and add your Google API key (required)
    ```
 
-   SDK interface `.env` file (`sdk-interface/.env`):
+3. **Run database migrations**
    ```bash
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-   XAI_API_KEY=your_xai_api_key_here
-   API_KEYS=username1:op_wui_token1;username2:op_wui_token2
-   LOG_LEVEL=info
-   ```
-   
-   Note: You can configure one or both API keys depending on which providers you want to use.
-
-3. **Generate API tokens** (optional, for authentication)
-   ```bash
-   python sdk-interface/scripts/generate_token.py
+   cd sdk-interface
+   yoyo apply
    ```
 
-4. **Create the required Docker volume**
+4. **Create the Docker volume**
    ```bash
    docker volume create open-webui
    ```
 
 5. **Start the stack**
    ```bash
+   cd ..
    docker-compose up -d
    ```
 
-6. **Access Open WebUI**
-   - Open your browser and navigate to: `http://localhost:8090`
-   - Configure the API endpoint in Open WebUI to point to the SDK interface service
+6. **Configure Open WebUI**
+   - Open your browser: `http://localhost:8090`
+   - Add the SDK interface as an OpenAI connection
+   - **Important**: Disable auto-title and auto-follow-up features (see warning above)
 
 ## 🏗️ Architecture
 
-The stack consists of three services:
-
 ### 1. SDK Interface (`sdk-interface`)
-- **Purpose**: OpenAI-compatible API bridge for multiple AI providers (Anthropic Claude, xAI Grok)
-- **Technology**: FastAPI, Python 3.12
+- **Purpose**: OpenAI-compatible API bridge featuring Google Deep Research
+- **Technology**: FastAPI, Python 3.11+, SQLite
 - **Port**: Internal only (accessed via Docker network)
 - **Key Features**:
-  - Converts OpenAI chat completion format to provider-specific API formats
-  - Dynamically fetches available models from each provider
-  - Handles both streaming and non-streaming responses
-  - Bearer token authentication with `op_wui_` prefix tokens
-  - Health check endpoint at `/health`
-  - Models listing at `/v1/models`
-  - Chat completions at `/v1/chat/completions`
+  - Deep Research session persistence and resumption
+  - Converts OpenAI format to provider-specific APIs
+  - Handles streaming with reasoning content
+  - Bearer token authentication
+  - Database: `data/db.sqlite3` with `research_hashes` table
+
+**Endpoints:**
+- `GET /v1/models` - List all available models
+- `POST /v1/chat/completions` - Chat completions (Deep Research, Claude, Gemini, Grok)
+- `GET /health` - Health check
 
 ### 2. Open WebUI (`open-webui`)
-- **Purpose**: Modern web interface for AI chat
+- **Purpose**: Modern web interface optimized for Deep Research
 - **Image**: `ghcr.io/open-webui/open-webui:main`
-- **Port**: `8090` (mapped to internal `8080`)
-- **Key Features**:
-  - Rich markdown rendering
-  - File upload and document processing
-  - Conversation history
-  - RAG with OpenAI-compatible embeddings
-  - Speech-to-text transcription
+- **Port**: `8090`
+- **Features**: Rich markdown, file upload, RAG, conversation history
 
 ### 3. Watchtower (`watchtower`)
 - **Purpose**: Automatic container updates
 - **Schedule**: Daily at 2 AM
-- **Target**: Updates the `open-webui` container automatically
 
 ## 🔐 Authentication
 
-The SDK interface supports bearer token authentication using tokens with the `op_wui_` prefix:
+Bearer token authentication with `op_wui_` prefix:
 
-- Format: `username:op_wui_<token>`
-- Multiple tokens separated by semicolons
-- Tokens are validated on each API request
-- Health check and root endpoints bypass authentication
+```bash
+# In sdk-interface/.env
+API_KEYS=username1:op_wui_token1;username2:op_wui_token2
+```
 
-Generate tokens using:
+Generate tokens:
 ```bash
 python sdk-interface/scripts/generate_token.py
 ```
 
-## 📡 API Endpoints
+## 💡 Usage Example
 
-### SDK Interface
-
-- `GET /` - API information
-- `GET /v1/models` - List all available models from configured providers (dynamically fetched)
-- `POST /v1/chat/completions` - Create chat completion (streaming and non-streaming)
-- `GET /health` - Health check
-
-### Request Example
+### Deep Research Query
 
 ```python
 from openai import OpenAI
@@ -145,44 +154,83 @@ client = OpenAI(
     base_url="http://localhost:8060/v1"
 )
 
+# First request - starts new research (consumes 1 RPM)
 response = client.chat.completions.create(
-    model="claude-sonnet-4-20250514",  # or any available model from /v1/models
+    model="deep-research-pro-preview-12-2025",
     messages=[
-        {"role": "user", "content": "Hello!"}
+        {"role": "user", "content": "Research the latest developments in quantum computing"}
     ],
     stream=True
 )
+
+for chunk in response:
+    delta = chunk.choices[0].delta
+    
+    # Research reasoning/thoughts
+    if hasattr(delta, 'reasoning_content'):
+        print(f"[THINKING] {delta.reasoning_content}")
+    
+    # Final research output
+    if delta.content:
+        print(delta.content, end="")
+
+# Same request later - automatically resumes (FREE - no RPM consumed)
+# Output: [SDK] Continuing interaction with id v1_...
 ```
 
 ## 🛠️ Configuration
 
 ### Environment Variables
 
-**SDK Interface:**
-- `ANTHROPIC_API_KEY` - Your Anthropic API key (optional, required for Claude models)
-- `XAI_API_KEY` - Your xAI API key (optional, required for Grok models)
+**SDK Interface (`sdk-interface/.env`):**
+- **`GOOGLE_API_KEY`** - Your Google API key (required for Deep Research)
+- `ANTHROPIC_API_KEY` - Your Anthropic API key (optional)
+- `GROK_API_KEY` - Your xAI API key (optional)
 - `API_KEYS` - Bearer tokens in format `username:token;username:token`
 - `LOG_LEVEL` - Logging level (default: `info`)
-- `HOST` - Bind host (default: `0.0.0.0`)
-- `PORT` - Service port (default: `8060`)
 
-**Open WebUI:**
-- `AUDIO_STT_ENGINE` - Speech-to-text engine (set to `openai`)
-- `RAG_EMBEDDING_ENGINE` - Embedding engine for RAG (set to `openai`)
+**Open WebUI Configuration:**
+- Disable auto-title generation
+- Disable auto-follow-up prompts
+- Configure API endpoint: `http://sdk-interface:8060/v1`
 
-## 📦 Network & Storage
+## 📦 Available Models
 
-- **Network**: Custom bridge network `open-webui-net` for service communication
-- **Volume**: External volume `open-webui` for persistent data storage
-- **Health Checks**: SDK interface includes health monitoring with automatic restarts
+### Google Deep Research (Primary)
+- **`deep-research-pro-preview-12-2025`** - Advanced research agent
 
-## 🔄 Updates
+### Google Gemini
+- `gemini-2.0-flash-exp`
+- `gemini-2.0-flash-thinking-exp`
+- `gemini-1.5-pro-latest`
+- And more...
 
-The stack includes Watchtower for automatic updates:
-- Runs daily at 2 AM
-- Updates only the `open-webui` container
-- Automatically cleans up old images
-- Does not update stopped containers
+### Anthropic Claude
+- `claude-opus-4-5-20251101`
+- `claude-sonnet-4-5-20250929`
+- `claude-3-5-sonnet-20241022`
+- And more...
+
+### xAI Grok
+- `grok-2-vision-1212`
+- `grok-2-1212`
+- And more...
+
+Full model list available at: `http://localhost:8060/v1/models`
+
+## 🔄 Deep Research Session Management
+
+**How it works:**
+1. Each unique message set generates an MD5 hash
+2. Hash is stored in database with `interaction_id` when research starts
+3. Same query later resumes from stored `interaction_id`
+4. Connection drops are automatically handled with reconnection
+5. **Session resumption does not consume RPM quota**
+
+**Session Status Messages:**
+- `[SDK] Connecting to Deep Research Agent...` - New session starting
+- `[SDK] Interaction started...` - Research session created
+- `[SDK] Continuing interaction with id v1_...` - Resuming existing session
 
 ## 📝 Development
 
@@ -192,24 +240,23 @@ volumes:
   - ./sdk-interface:/sdk-interface/app
 ```
 
-Changes to Python files will require a container restart to take effect.
+Changes require container restart. See `sdk-interface/README.md` for detailed API documentation.
 
 ## ⚠️ Disclaimer
 
 This is an **unofficial** community project and is **not affiliated with or endorsed by:**
 - Open WebUI Inc. or its contributors
+- Google LLC or Alphabet Inc.
 - Anthropic PBC
 - xAI Corp.
 
-"Open WebUI" is the name/branding of the upstream project. Please refer to the official repositories for licensing and branding requirements.
-
 ## 🔗 Links
 
+- [SDK Interface Documentation](./sdk-interface/README.md) - Detailed API documentation
 - [Open WebUI Official Repository](https://github.com/open-webui/open-webui)
+- [Google AI Studio](https://aistudio.google.com/)
 - [Anthropic](https://www.anthropic.com/)
-- [Anthropic API Documentation](https://docs.anthropic.com/)
 - [xAI](https://x.ai/)
-- [xAI API Documentation](https://docs.x.ai/)
 
 ## 📄 License
 
