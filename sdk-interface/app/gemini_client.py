@@ -411,7 +411,6 @@ class GeminiClient:
                 
                 if event.event_type in ['interaction.complete', 'error']:
                     is_complete = True
-                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={}, finish_reason='stop')]).model_dump_json()}\n\n"
                 
                 # Reset poll timer when we receive events
                 last_poll_time = time.time()
@@ -491,7 +490,12 @@ class GeminiClient:
                                     stream_iter = None
                                     continue
                             elif status in ["completed", "failed", "cancelled"]:
-                                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Interaction {status_msg}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+                                if status == "completed" and hasattr(interaction_status, 'outputs') and interaction_status.outputs:
+                                    for output in interaction_status.outputs:
+                                        if output.type == "text" and hasattr(output, 'text') and output.text:
+                                            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'content': output.text}, finish_reason=None)]).model_dump_json()}\n\n"
+                                
+                                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={}, finish_reason='stop')]).model_dump_json()}\n\n"
                                 is_complete = True
                         else:
                             logger.warning(f"No status available in interaction object: {interaction_status}")
