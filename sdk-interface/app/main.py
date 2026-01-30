@@ -99,12 +99,27 @@ async def get_available_models() -> set[str]:
     """Get available model IDs from APIs (cached)."""
     global _model_cache
     if _model_cache is None:
-        anthropic_models = await anthropic_client.list_models()
-        gemini_models = await gemini_client.list_models()
-        grok_models = await grok_client.list_models()
-        _model_cache = {model.id for model in anthropic_models} | \
-                       {model.id for model in gemini_models} | \
-                       {model.id for model in grok_models}
+        all_model_ids = set()
+        
+        try:
+            anthropic_models = await anthropic_client.list_models()
+            all_model_ids.update(model.id for model in anthropic_models)
+        except Exception as e:
+            logger.warning(f"Failed to fetch Anthropic models for cache: {e}")
+        
+        try:
+            gemini_models = await gemini_client.list_models()
+            all_model_ids.update(model.id for model in gemini_models)
+        except Exception as e:
+            logger.warning(f"Failed to fetch Gemini models for cache: {e}")
+        
+        try:
+            grok_models = await grok_client.list_models()
+            all_model_ids.update(model.id for model in grok_models)
+        except Exception as e:
+            logger.warning(f"Failed to fetch Grok models for cache: {e}")
+        
+        _model_cache = all_model_ids
     return _model_cache
 
 
@@ -121,23 +136,38 @@ async def root() -> dict[str, str]:
 @app.get("/v1/models")
 async def list_models() -> ModelsResponse:
     """List available models from all supported APIs in OpenAI format."""
+    all_models = []
+    
+    # Fetch from each provider, continue even if one fails
     try:
         anthropic_models = await anthropic_client.list_models()
-        gemini_models = await gemini_client.list_models()
-        grok_models = await grok_client.list_models()
-        
-        all_models = anthropic_models + gemini_models + grok_models
-        logger.debug(f"Fetched {len(all_models)} models "
-                   f"({len(anthropic_models)} Anthropic, "
-                   f"{len(gemini_models)} Gemini, "
-                   f"{len(grok_models)} Grok)")
-        return ModelsResponse(data=all_models)
+        all_models.extend(anthropic_models)
+        logger.debug(f"Fetched {len(anthropic_models)} Anthropic models")
     except Exception as e:
-        logger.error(f"Error fetching models: {e}", exc_info=True)
+        logger.warning(f"Failed to fetch Anthropic models: {e}")
+    
+    try:
+        gemini_models = await gemini_client.list_models()
+        all_models.extend(gemini_models)
+        logger.debug(f"Fetched {len(gemini_models)} Gemini models")
+    except Exception as e:
+        logger.warning(f"Failed to fetch Gemini models: {e}")
+    
+    try:
+        grok_models = await grok_client.list_models()
+        all_models.extend(grok_models)
+        logger.debug(f"Fetched {len(grok_models)} Grok models")
+    except Exception as e:
+        logger.warning(f"Failed to fetch Grok models: {e}")
+    
+    if not all_models:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch models: {str(e)}"
+            detail="Failed to fetch models from any provider"
         )
+    
+    logger.debug(f"Total models fetched: {len(all_models)}")
+    return ModelsResponse(data=all_models)
 
 
 #     except ValueError as e:
@@ -200,19 +230,28 @@ async def get_client(request: ChatCompletionRequest):
             raise ValueError(f"Model {model_id} not found in any provider")
     
     # Try each client to see which one has this model
-    anthropic_models = await anthropic_client.list_models()
-    if any(m.id.lower() == model_id for m in anthropic_models):
-        return anthropic_client
+    try:
+        anthropic_models = await anthropic_client.list_models()
+        if any(m.id.lower() == model_id for m in anthropic_models):
+            return anthropic_client
+    except Exception as e:
+        logger.debug(f"Anthropic client unavailable: {e}")
     
-    gemini_models = await gemini_client.list_models()
-    if any(m.id.lower() == model_id for m in gemini_models):
-        return gemini_client
+    try:
+        gemini_models = await gemini_client.list_models()
+        if any(m.id.lower() == model_id for m in gemini_models):
+            return gemini_client
+    except Exception as e:
+        logger.debug(f"Gemini client unavailable: {e}")
     
-    grok_models = await grok_client.list_models()
-    if any(m.id.lower() == model_id for m in grok_models):
-        return grok_client
+    try:
+        grok_models = await grok_client.list_models()
+        if any(m.id.lower() == model_id for m in grok_models):
+            return grok_client
+    except Exception as e:
+        logger.debug(f"Grok client unavailable: {e}")
     
-    raise ValueError(f"Model {model_id} not found in any provider")
+    raise ValueError(f"Model {model_id} not found in any available provider")
 
 
 

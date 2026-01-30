@@ -235,12 +235,7 @@ class GrokClient:
                     ]
                 )
                 
-                # Filter out None values from delta to match standard
-                if response_chunk.choices[0].delta.get("role") is None:
-                     del response_chunk.choices[0].delta["role"]
-                if response_chunk.choices[0].delta.get("content") is None:
-                     del response_chunk.choices[0].delta["content"]
-
+                # Yield the chunk (exclude_none handles None values automatically)
                 yield f"data: {response_chunk.model_dump_json(exclude_none=True)}\n\n"
             
             yield "data: [DONE]\n\n"
