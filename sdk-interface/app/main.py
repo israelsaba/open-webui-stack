@@ -3,6 +3,7 @@ import logging
 import json
 import hashlib
 import sqlite3
+from functools import cache
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -216,6 +217,19 @@ async def get_client(request: ChatCompletionRequest):
     """Get the appropriate client for the requested model."""
     model_id = request.model.lower()
     
+    # Check cache first - use model_id as cache key
+    # Since @cache doesn't work with async, we'll use a simple dict cache
+    global _client_cache
+    if not hasattr(get_client, '_cache'):
+        get_client._cache = {}
+    
+    # Return cached client if available
+    if model_id in get_client._cache:
+        logger.debug(f"Cache hit for model: {model_id}")
+        return get_client._cache[model_id]
+    
+    logger.debug(f"Cache miss for model: {model_id}, determining client...")
+    
     # Get available models from cache
     available_models = await get_available_models()
     
@@ -230,28 +244,38 @@ async def get_client(request: ChatCompletionRequest):
             raise ValueError(f"Model {model_id} not found in any provider")
     
     # Try each client to see which one has this model
+    client = None
     try:
         anthropic_models = await anthropic_client.list_models()
         if any(m.id.lower() == model_id for m in anthropic_models):
-            return anthropic_client
+            client = anthropic_client
     except Exception as e:
         logger.debug(f"Anthropic client unavailable: {e}")
     
-    try:
-        gemini_models = await gemini_client.list_models()
-        if any(m.id.lower() == model_id for m in gemini_models):
-            return gemini_client
-    except Exception as e:
-        logger.debug(f"Gemini client unavailable: {e}")
+    if not client:
+        try:
+            gemini_models = await gemini_client.list_models()
+            if any(m.id.lower() == model_id for m in gemini_models):
+                client = gemini_client
+        except Exception as e:
+            logger.debug(f"Gemini client unavailable: {e}")
     
-    try:
-        grok_models = await grok_client.list_models()
-        if any(m.id.lower() == model_id for m in grok_models):
-            return grok_client
-    except Exception as e:
-        logger.debug(f"Grok client unavailable: {e}")
+    if not client:
+        try:
+            grok_models = await grok_client.list_models()
+            if any(m.id.lower() == model_id for m in grok_models):
+                client = grok_client
+        except Exception as e:
+            logger.debug(f"Grok client unavailable: {e}")
     
-    raise ValueError(f"Model {model_id} not found in any available provider")
+    if not client:
+        raise ValueError(f"Model {model_id} not found in any available provider")
+    
+    # Cache the result
+    get_client._cache[model_id] = client
+    logger.debug(f"Cached client for model: {model_id}")
+    
+    return client
 
 
 
