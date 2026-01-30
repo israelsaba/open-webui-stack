@@ -2,6 +2,7 @@ import sqlite3
 import logging
 import time
 import asyncio
+from datetime import datetime
 from collections.abc import AsyncIterator
 from typing import Any
 import httpx
@@ -348,7 +349,8 @@ class GeminiClient:
         last_poll_time = time.time()
         
         if not interaction_id:
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Deep Research Agent ({request.model})...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+            ts = datetime.now().strftime("%H:%M:%S")
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK {ts}] Connecting to Deep Research Agent ({request.model})...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
             
             kwargs = {
                 "agent": request.model,
@@ -362,9 +364,11 @@ class GeminiClient:
             }
             
             stream = await self.client.aio.interactions.create(**kwargs)
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Interaction started...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+            ts = datetime.now().strftime("%H:%M:%S")
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK {ts}] Interaction started...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
         else:
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Continuing interaction with id {interaction_id}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+            ts = datetime.now().strftime("%H:%M:%S")
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK {ts}] Continuing interaction with id {interaction_id}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
             stream = await self.client.aio.interactions.get(id=interaction_id, stream=True)
         
         # Convert stream to async iterator we can control
@@ -431,7 +435,8 @@ class GeminiClient:
                             
                             # Only show polling message if still running
                             if status in ["in_progress", "requires_action"]:
-                                msg = f'\n\n[SDK] Interaction {status_msg}\n\n'
+                                timestamp = datetime.now().strftime("%H:%M:%S")
+                                msg = f'\n\n[SDK {timestamp}] Interaction {status_msg}\n\n'
                                 logger.info(f"Yielding status message: {msg.strip()}")
                                 chunk_data = ChatCompletionChunk(
                                     id=completion_id, 
@@ -453,7 +458,8 @@ class GeminiClient:
                                 
                                 # Reconnect after showing status since stream likely timed out
                                 logger.info("Yielding reconnecting message")
-                                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '\n\n[SDK] Reconnecting to stream...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+                                reconnect_timestamp = datetime.now().strftime("%H:%M:%S")
+                                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'\n\n[SDK {reconnect_timestamp}] Reconnecting to stream...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
                                 
                                 # Small delay before reconnecting
                                 await asyncio.sleep(0.5)
