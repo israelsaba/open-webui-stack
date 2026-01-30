@@ -389,11 +389,10 @@ class GeminiClient:
                 
                 if event.event_type == "interaction.start":
                     interaction_id = event.interaction.id
-                    logger.debug(f"Interaction ID is: {interaction_id}, md5_hash: {md5_hash}")
+                    logger.info(f"Interaction ID is: {interaction_id}, md5_hash: {md5_hash}")
                     
                     if md5_hash:
                         import sqlite3 as sqlite_module
-                        from app.config import settings
                         conn = sqlite_module.connect(str(settings.db_path))
                         conn.execute("UPDATE research_hashes SET interaction_id = ? WHERE md5 = ?", (interaction_id, md5_hash))
                         conn.commit()
