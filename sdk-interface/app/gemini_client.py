@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 import time
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 import httpx
@@ -22,6 +23,9 @@ from app.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Polling interval for checking interaction status (in seconds)
+INTERACTION_POLL_INTERVAL = 30
 
 
 class GeminiClient:
@@ -315,74 +319,6 @@ class GeminiClient:
             })
         return turns
 
-# from dotenv import load_dotenv
-# import os
-# import time
-# from google import genai
-#
-# load_dotenv()
-# client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-#
-# agent_name = 'deep-research-pro-preview-12-2025'
-#
-# last_event_id = None
-# interaction_id = "v1_ChdHSXA2YWF2LUNQalZ6N0lQcWRiQ3NBNBIXR0lwNmFhdi1DUGpWejdJUHFkYkNzQTQ"
-# is_complete = False
-#
-#
-#
-# def process_stream(event_stream):
-#     """Helper to process events from any stream source."""
-#     global last_event_id, interaction_id, is_complete
-#     for event in event_stream:
-#         if event.event_type == "interaction.start":
-#             interaction_id = event.interaction.id
-#             print(f"Interaction started: {interaction_id}")
-#
-#         if event.event_id:
-#             last_event_id = event.event_id
-#
-#         if event.event_type == "content.delta":
-#             if event.delta.type == "text":
-#                 print(event.delta.text, end="", flush=True)
-#             elif event.delta.type == "thought_summary":
-#                 print(f"Thought: {event.delta.content.text}", flush=True)
-#
-#         if event.event_type in ['interaction.complete', 'error']:
-#             is_complete = True
-#
-# try:
-#     print("Starting Research...")
-#     initial_stream = client.interactions.create(
-#         input=prompt,
-#         agent=agent_name,
-#         background=True,
-#         stream=True,
-#         agent_config={
-#             "type": "deep-research",
-#             "thinking_summaries": "auto"
-#         }
-#     )
-#     process_stream(initial_stream)
-# except Exception as e:
-#     print(f"\nInitial connection dropped: {e}")
-#
-# while not is_complete and interaction_id:
-#     print(f"\nConnection lost. Resuming from event {last_event_id}...")
-#     time.sleep(2) 
-#
-#     try:
-#         resume_stream = client.interactions.get(
-#             id=interaction_id,
-#             stream=True,
-#             last_event_id=last_event_id
-#         )
-#         process_stream(resume_stream)
-#     except Exception as e:
-#         print(f"Reconnection failed, retrying... ({e})")
-#
-#
-
 
     async def _create_interaction_stream(
         self,
@@ -409,9 +345,10 @@ class GeminiClient:
         interaction_id = previous_completion.interaction_id if previous_completion and previous_completion.interaction_id else None
         last_event_id = None
         is_complete = False
+        last_poll_time = time.time()
         
         if not interaction_id:
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Deep Research Agent ({request.model})...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Deep Research Agent ({request.model})...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
             
             kwargs = {
                 "agent": request.model,
@@ -425,13 +362,19 @@ class GeminiClient:
             }
             
             stream = await self.client.aio.interactions.create(**kwargs)
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Interaction started...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Interaction started...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
         else:
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Continuing interaction with id {interaction_id}'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Continuing interaction with id {interaction_id}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
             stream = await self.client.aio.interactions.get(id=interaction_id, stream=True)
         
+        # Convert stream to async iterator we can control
+        stream_iter = stream.__aiter__()
+        
         while not is_complete:
-            async for event in stream:
+            try:
+                # Wait for next event with timeout equal to polling interval
+                event = await asyncio.wait_for(stream_iter.__anext__(), timeout=INTERACTION_POLL_INTERVAL)
+                
                 logger.debug(f"interaction event: {event}")
                 
                 if event.event_type == "interaction.start":
@@ -460,13 +403,81 @@ class GeminiClient:
                 if event.event_type in ['interaction.complete', 'error']:
                     is_complete = True
                     yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={}, finish_reason='stop')]).model_dump_json()}\n\n"
-            
-            if not is_complete and interaction_id:
-                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connection lost, resuming from event {last_event_id}...'}, finish_reason=None)]).model_dump_json()}\n\n"
-                kwargs = {"id": interaction_id, "stream": True}
-                if last_event_id:
-                    kwargs["last_event_id"] = last_event_id
-                stream = await self.client.aio.interactions.get(**kwargs)
+                
+                # Reset poll timer when we receive events
+                last_poll_time = time.time()
+                
+            except asyncio.TimeoutError:
+                # Timeout reached - poll for status and send update, then reconnect
+                if interaction_id:
+                    try:
+                        logger.info(f"Polling interaction {interaction_id} status after {INTERACTION_POLL_INTERVAL}s timeout")
+                        interaction_status = await self.client.aio.interactions.get(id=interaction_id)
+                        
+                        if interaction_status and hasattr(interaction_status, 'status'):
+                            status = interaction_status.status
+                            logger.info(f"Interaction status from API: {status}")
+                            
+                            # Map status to user-friendly messages
+                            status_messages = {
+                                "in_progress": "still in progress - researching and generating response",
+                                "requires_action": "requires action",
+                                "completed": "completed",
+                                "failed": "failed",
+                                "cancelled": "cancelled"
+                            }
+                            
+                            status_msg = status_messages.get(status, f"status: {status}")
+                            
+                            # Only show polling message if still running
+                            if status in ["in_progress", "requires_action"]:
+                                msg = f'\n\n[SDK] Interaction {status_msg}\n\n'
+                                logger.info(f"Yielding status message: {msg.strip()}")
+                                chunk_data = ChatCompletionChunk(
+                                    id=completion_id, 
+                                    created=created, 
+                                    model=request.model, 
+                                    choices=[
+                                        ChatCompletionStreamChoice(
+                                            index=0, 
+                                            delta={'reasoning_content': msg}, 
+                                            finish_reason=None
+                                        )
+                                    ]
+                                ).model_dump_json()
+                                logger.info(f"Chunk JSON: {chunk_data}")
+                                yield f"data: {chunk_data}\n\n"
+                                
+                                # Small delay to ensure message is delivered before reconnecting
+                                await asyncio.sleep(0.1)
+                                
+                                # Reconnect after showing status since stream likely timed out
+                                logger.info("Yielding reconnecting message")
+                                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '\n\n[SDK] Reconnecting to stream...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+                                
+                                # Small delay before reconnecting
+                                await asyncio.sleep(0.5)
+                                kwargs = {"id": interaction_id, "stream": True}
+                                if last_event_id:
+                                    kwargs["last_event_id"] = last_event_id
+                                stream = await self.client.aio.interactions.get(**kwargs)
+                                stream_iter = stream.__aiter__()
+                            elif status in ["completed", "failed", "cancelled"]:
+                                yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Interaction {status_msg}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+                                is_complete = True
+                        else:
+                            logger.warning(f"No status available in interaction object: {interaction_status}")
+                            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Interaction status unknown - continuing to monitor\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+                    except Exception as poll_error:
+                        logger.warning(f"Failed to poll interaction status: {poll_error}")
+                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Unable to check status\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
+                
+            except StopAsyncIteration:
+                # Stream ended unexpectedly
+                logger.warning(f"[EDGE CASE] Stream ended with StopAsyncIteration. is_complete={is_complete}, interaction_id={interaction_id}")
+                if not is_complete:
+                    logger.warning("[EDGE CASE] Stream ended but interaction not complete - this shouldn't happen as timeout should handle reconnection")
+                break
         
         yield "data: [DONE]\n\n"
 
@@ -502,7 +513,7 @@ class GeminiClient:
         created = int(time.time())
 
         try:
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Google Gemini API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Google Gemini API with model {request.model}...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
             
             response_stream = self.client.models.generate_content_stream(
                 model=request.model,
@@ -511,7 +522,7 @@ class GeminiClient:
             )
             
             # Send meta-reasoning: Stream started
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
             
             # Track if we're in a thinking block for thinking models
             in_thinking_block = False
@@ -520,7 +531,7 @@ class GeminiClient:
             
             for chunk in response_stream:
                 if first_chunk:
-                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
+                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
                     first_chunk = False
 
                 if hasattr(chunk, 'text') and chunk.text:
