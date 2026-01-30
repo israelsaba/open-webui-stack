@@ -1,10 +1,11 @@
-# Open WebUI + Google Deep Research Integration Stack
+# Google Deep Research and Open WebUI Integration Stack
 
 A complete Docker Compose stack featuring **Google's Deep Research** with persistent session resumption, integrated with **Open WebUI** for a powerful research-focused AI experience. Also supports Anthropic Claude and xAI Grok models via an OpenAI-compatible API bridge.
 
 ## 🔬 Deep Research - Primary Feature
 
 **Google Deep Research** is an advanced AI research agent that provides comprehensive, multi-step analysis:
+
 - **Persistent Research Sessions**: Automatic interaction resumption for long-running research
 - **Multi-Step Reasoning**: Extended thinking with transparent research process
 - **Background Processing**: Research continues even if connection drops
@@ -16,11 +17,13 @@ A complete Docker Compose stack featuring **Google's Deep Research** with persis
 Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your quota:
 
 **In Open WebUI Settings:**
+
 1. Go to **Settings** → **Interface**
 2. **Disable "Auto-Generate Title"** - This would consume a Deep Research request just to generate a chat title
 3. **Disable "Auto-Follow-Up Prompts"** - This would consume a Deep Research request for suggestion generation
 
 **Why this matters:**
+
 - Deep Research is designed for comprehensive, time-intensive analysis (30-60+ seconds per query)
 - Auto-title and auto-follow-up features make rapid API calls that waste your limited quota
 - Session resumption allows you to continue research without consuming additional quota
@@ -32,7 +35,7 @@ Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your 
 - **🔬 Google Deep Research Integration**: First-class support with automatic session resumption
 - **OpenAI-Compatible API Bridge**: FastAPI-based service for multiple AI providers
 - **Open WebUI Interface**: Modern, feature-rich web UI for interacting with AI models
-- **Multi-Provider Support**: 
+- **Multi-Provider Support**:
   - **Google Deep Research & Gemini**: Advanced research agent with thinking models
   - **Anthropic Claude**: Latest Claude models with extended context
   - **xAI Grok**: Latest Grok models
@@ -66,12 +69,14 @@ Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your 
 ## 🔧 Setup
 
 1. **Clone the repository**
+
    ```bash
    git clone <your-repo-url>
    cd open-webui-stack
    ```
 
 2. **Set up the SDK interface**
+
    ```bash
    cd sdk-interface
    cp .env.example .env
@@ -79,17 +84,20 @@ Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your 
    ```
 
 3. **Run database migrations**
+
    ```bash
    cd sdk-interface
    yoyo apply
    ```
 
 4. **Create the Docker volume**
+
    ```bash
    docker volume create open-webui
    ```
 
 5. **Start the stack**
+
    ```bash
    cd ..
    docker-compose up -d
@@ -103,6 +111,7 @@ Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your 
 ## 🏗️ Architecture
 
 ### 1. SDK Interface (`sdk-interface`)
+
 - **Purpose**: OpenAI-compatible API bridge featuring Google Deep Research
 - **Technology**: FastAPI, Python 3.11+, SQLite
 - **Port**: Internal only (accessed via Docker network)
@@ -114,17 +123,20 @@ Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your 
   - Database: `data/db.sqlite3` with `research_hashes` table
 
 **Endpoints:**
+
 - `GET /v1/models` - List all available models
 - `POST /v1/chat/completions` - Chat completions (Deep Research, Claude, Gemini, Grok)
 - `GET /health` - Health check
 
 ### 2. Open WebUI (`open-webui`)
+
 - **Purpose**: Modern web interface optimized for Deep Research
 - **Image**: `ghcr.io/open-webui/open-webui:main`
 - **Port**: `8090`
 - **Features**: Rich markdown, file upload, RAG, conversation history
 
 ### 3. Watchtower (`watchtower`)
+
 - **Purpose**: Automatic container updates
 - **Schedule**: Daily at 2 AM
 
@@ -138,6 +150,7 @@ API_KEYS=username1:op_wui_token1;username2:op_wui_token2
 ```
 
 Generate tokens:
+
 ```bash
 python sdk-interface/scripts/generate_token.py
 ```
@@ -165,11 +178,11 @@ response = client.chat.completions.create(
 
 for chunk in response:
     delta = chunk.choices[0].delta
-    
+
     # Research reasoning/thoughts
     if hasattr(delta, 'reasoning_content'):
         print(f"[THINKING] {delta.reasoning_content}")
-    
+
     # Final research output
     if delta.content:
         print(delta.content, end="")
@@ -183,6 +196,7 @@ for chunk in response:
 ### Environment Variables
 
 **SDK Interface (`sdk-interface/.env`):**
+
 - **`GOOGLE_API_KEY`** - Your Google API key (required for Deep Research)
 - `ANTHROPIC_API_KEY` - Your Anthropic API key (optional)
 - `GROK_API_KEY` - Your xAI API key (optional)
@@ -190,6 +204,7 @@ for chunk in response:
 - `LOG_LEVEL` - Logging level (default: `info`)
 
 **Open WebUI Configuration:**
+
 - Disable auto-title generation
 - Disable auto-follow-up prompts
 - Configure API endpoint: `http://sdk-interface:8060/v1`
@@ -197,21 +212,25 @@ for chunk in response:
 ## 📦 Available Models
 
 ### Google Deep Research (Primary)
+
 - **`deep-research-pro-preview-12-2025`** - Advanced research agent
 
 ### Google Gemini
+
 - `gemini-2.0-flash-exp`
 - `gemini-2.0-flash-thinking-exp`
 - `gemini-1.5-pro-latest`
 - And more...
 
 ### Anthropic Claude
+
 - `claude-opus-4-5-20251101`
 - `claude-sonnet-4-5-20250929`
 - `claude-3-5-sonnet-20241022`
 - And more...
 
 ### xAI Grok
+
 - `grok-2-vision-1212`
 - `grok-2-1212`
 - And more...
@@ -221,6 +240,7 @@ Full model list available at: `http://localhost:8060/v1/models`
 ## 🔄 Deep Research Session Management
 
 **How it works:**
+
 1. Each unique message set generates an MD5 hash
 2. Hash is stored in database with `interaction_id` when research starts
 3. Same query later resumes from stored `interaction_id`
@@ -228,6 +248,7 @@ Full model list available at: `http://localhost:8060/v1/models`
 5. **Session resumption does not consume RPM quota**
 
 **Session Status Messages:**
+
 - `[SDK] Connecting to Deep Research Agent...` - New session starting
 - `[SDK] Interaction started...` - Research session created
 - `[SDK] Continuing interaction with id v1_...` - Resuming existing session
@@ -235,6 +256,7 @@ Full model list available at: `http://localhost:8060/v1/models`
 ## 📝 Development
 
 The SDK interface is mounted as a volume for development:
+
 ```yaml
 volumes:
   - ./sdk-interface:/sdk-interface/app
@@ -245,6 +267,7 @@ Changes require container restart. See `sdk-interface/README.md` for detailed AP
 ## ⚠️ Disclaimer
 
 This is an **unofficial** community project and is **not affiliated with or endorsed by:**
+
 - Open WebUI Inc. or its contributors
 - Google LLC or Alphabet Inc.
 - Anthropic PBC
@@ -261,5 +284,6 @@ This is an **unofficial** community project and is **not affiliated with or endo
 ## 📄 License
 
 Please refer to the individual component licenses:
+
 - Open WebUI: See upstream repository
 - SDK Interface: See LICENSE file in this repository
