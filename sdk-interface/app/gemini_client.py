@@ -462,6 +462,8 @@ class GeminiClient:
                                     kwargs["last_event_id"] = last_event_id
                                 stream = await self.client.aio.interactions.get(**kwargs)
                                 stream_iter = stream.__aiter__()
+                                # Continue the loop to start listening to the new stream
+                                continue
                             elif status in ["completed", "failed", "cancelled"]:
                                 yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Interaction {status_msg}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
                                 is_complete = True
