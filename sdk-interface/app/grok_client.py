@@ -55,7 +55,6 @@ class GrokClient:
             for model in response.data:
                 models.append(ModelInfo(
                     id=model.id,
-                    created=model.created,
                     owned_by=model.owned_by
                 ))
             

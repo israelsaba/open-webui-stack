@@ -71,13 +71,11 @@ class GeminiClient:
                 logger.debug(f"Model {model_name}: supported_methods={supported_methods}")
                 
                 if "generateContent" in supported_methods:
-                    # Remove 'models/' prefix from name
                     model_id = model_name.replace("models/", "") if model_name.startswith("models/") else model_name
                     
                     if model_id:
                         models.append(ModelInfo(
                             id=model_id,
-                            created=int(time.time()),
                             owned_by="google"
                         ))
             

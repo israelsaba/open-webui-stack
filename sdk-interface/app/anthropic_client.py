@@ -54,18 +54,9 @@ class AnthropicClient:
             
             models = []
             for model in response.data:
-                try:
-                    created_at_str = str(model.created_at)
-                    if 'T' in created_at_str or '-' in created_at_str:
-                        created_timestamp = int(datetime.fromisoformat(created_at_str.replace('Z', '+00:00')).timestamp())
-                    else:
-                        created_timestamp = int(created_at_str)
-                except (ValueError, AttributeError):
-                    created_timestamp = int(time.time())
                 
                 models.append(ModelInfo(
                     id=model.id,
-                    created=created_timestamp,
                     owned_by="anthropic"
                 ))
             

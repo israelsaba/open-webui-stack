@@ -1,5 +1,6 @@
+from datetime import UTC, datetime
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class ChatMessage(BaseModel):
@@ -20,14 +21,16 @@ class ChatCompletionRequest(BaseModel):
     reasoning_effort: str | None = Field(default=None, description="Reasoning effort level: low, medium, high")
 
 
-# Response Models
 class ModelInfo(BaseModel):
     """Information about a single model."""
     id: str
     object: Literal["model"] = "model"
-    created: int
+    created: datetime = Field(default_factory=lambda: datetime.now(UTC))
     owned_by: str
 
+    @field_serializer("created")
+    def return_str(self, field: datetime) -> str | None:
+        return str(field)
 
 class ModelsResponse(BaseModel):
     """Response containing list of available models."""

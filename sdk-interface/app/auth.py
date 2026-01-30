@@ -86,7 +86,7 @@ class BearerTokenMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def parse_api_keys(api_keys_string: str) -> Dict[str, str]:
+def parse_api_keys(api_keys_string: str) -> dict[str, str]:
     """
     Parse API keys from environment variable format.
     
