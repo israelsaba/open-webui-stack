@@ -5,6 +5,7 @@ A FastAPI service that brings **Google's Deep Research** capabilities to any Ope
 ## 🔬 Deep Research - Main Feature
 
 **Google Deep Research** is an advanced AI research agent that provides comprehensive, multi-step analysis with:
+
 - **Persistent Research Sessions**: Automatic interaction resumption for long-running research
 - **Multi-Step Reasoning**: Extended thinking with transparent research process
 - **Background Processing**: Research continues even if connection drops
@@ -12,6 +13,7 @@ A FastAPI service that brings **Google's Deep Research** capabilities to any Ope
 - **OpenAI-Compatible Streaming**: Works with any tool supporting OpenAI's API
 
 ### Deep Research Models
+
 - `deep-research-pro-preview-12-2025` - Full-featured deep research agent
 
 ### ⚠️ Important: Rate Limits & Required Concessions
@@ -19,11 +21,13 @@ A FastAPI service that brings **Google's Deep Research** capabilities to any Ope
 Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your quota, you **must disable** these features in your OpenAI-compatible client:
 
 **For Open WebUI users:**
+
 1. Go to **Settings** → **Interface**
 2. **Disable "Auto-Generate Title"** - This would consume a Deep Research request just to generate a chat title
 3. **Disable "Auto-Follow-Up Prompts"** - This would consume a Deep Research request for suggestion generation
 
 **Why this matters:**
+
 - Deep Research is designed for comprehensive, time-intensive analysis (often 30-60+ seconds)
 - Auto-title and auto-follow-up features make rapid API calls that waste your limited quota
 - Session resumption allows you to continue research without consuming additional quota
@@ -55,28 +59,33 @@ Deep Research has a **1 request per minute (RPM) limit**. To avoid wasting your 
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone <repository-url>
 cd sdk-interface
 ```
 
 2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. Set up environment variables:
+
 ```bash
 cp .env.example .env
 # Edit .env and add your Google API key (required for Deep Research)
 ```
 
 4. Run database migrations:
+
 ```bash
 yoyo apply
 ```
 
 5. Run the server:
+
 ```bash
 uvicorn app.main:app --reload
 ```
@@ -109,6 +118,7 @@ for chunk in response:
 ### Automatic Session Resumption
 
 Deep Research automatically resumes interrupted sessions. If you make the same request again, it will:
+
 1. Detect the previous research session by message hash
 2. Resume from the stored `interaction_id`
 3. Continue the research without starting over
@@ -160,11 +170,11 @@ response = client.chat.completions.create(
 
 for chunk in response:
     delta = chunk.choices[0].delta
-    
+
     # Research reasoning/thoughts
     if hasattr(delta, 'reasoning_content'):
         print(f"[THINKING] {delta.reasoning_content}")
-    
+
     # Final research output
     if delta.content:
         print(delta.content, end="")
@@ -196,9 +206,11 @@ response = client.chat.completions.create(
 ## Available Models
 
 ### Google Deep Research (Primary)
+
 - **`deep-research-pro-preview-12-2025`** - Advanced research agent with multi-step reasoning and automatic session resumption
 
 ### Google Gemini Models
+
 - `gemini-2.0-flash-exp`
 - `gemini-2.0-flash-thinking-exp`
 - `gemini-1.5-pro-latest`
@@ -206,6 +218,7 @@ response = client.chat.completions.create(
 - And more...
 
 ### Anthropic Claude Models
+
 - `claude-opus-4-5-20251101`
 - `claude-sonnet-4-5-20250929`
 - `claude-3-5-sonnet-20241022`
@@ -213,6 +226,7 @@ response = client.chat.completions.create(
 - And more...
 
 ### xAI Grok Models
+
 - `grok-2-vision-1212`
 - `grok-2-1212`
 - And more...
@@ -222,32 +236,38 @@ The full list of available models is dynamically fetched from each provider and 
 ## API Endpoints
 
 ### `GET /v1/models`
+
 List all available models from all providers.
 
 ### `GET /v1/models/{model_id}`
+
 Get details about a specific model.
 
 ### `POST /v1/chat/completions`
+
 Create a chat completion. Supports both streaming and non-streaming modes.
 
 **Deep Research Special Features:**
+
 - Automatic session persistence via message hash
 - Interaction ID stored in SQLite database
 - Automatic resumption of interrupted research
 - Background processing with reconnection support
 
 Request body:
+
 ```json
 {
   "model": "deep-research-pro-preview-12-2025",
   "messages": [
-    {"role": "user", "content": "Research the future of renewable energy"}
+    { "role": "user", "content": "Research the future of renewable energy" }
   ],
   "stream": true
 }
 ```
 
 Response includes:
+
 - `delta.content` - Final research output
 - `delta.reasoning_content` - Research methodology and thinking process
 - SDK status messages with `[SDK]` prefix for session management
@@ -267,16 +287,16 @@ Response includes:
 - `LOG_LEVEL` - Logging level (default: info)
 - `DETAILED_REQUEST_LOGGING` - Enable detailed request/response logging (default: false)
 
-
-
 ### Database
 
 Deep Research uses SQLite for session persistence:
+
 - **Database**: `data/db.sqlite3`
 - **Table**: `research_hashes` - stores interaction IDs mapped to message hashes
 - **Migrations**: Managed by yoyo-migrations
 
 Run migrations:
+
 ```bash
 yoyo apply
 ```
@@ -286,12 +306,14 @@ yoyo apply
 ### Deep Research Session Management
 
 **Automatic Resumption:**
+
 - Each unique set of messages generates an MD5 hash
 - Hash is used to lookup existing research sessions in the database
 - If found, research continues from the stored `interaction_id`
 - Connection drops are automatically handled with reconnection
 
 **Session Tracking:**
+
 ```python
 # First request - creates new session
 # Output: [SDK] Connecting to Deep Research Agent...
