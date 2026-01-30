@@ -26,7 +26,7 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 # Polling interval for checking interaction status (in seconds)
-INTERACTION_POLL_INTERVAL = 30
+INTERACTION_POLL_INTERVAL = 1  # Set to 1 second for testing
 
 
 class GeminiClient:
@@ -377,6 +377,7 @@ class GeminiClient:
         while not is_complete:
             try:
                 # Wait for next event with timeout equal to polling interval
+                logger.debug(f"Waiting for next event (timeout: {INTERACTION_POLL_INTERVAL}s)...")
                 event = await asyncio.wait_for(stream_iter.__anext__(), timeout=INTERACTION_POLL_INTERVAL)
                 
                 logger.debug(f"interaction event: {event}")
@@ -463,13 +464,28 @@ class GeminiClient:
                                 
                                 # Small delay before reconnecting
                                 await asyncio.sleep(0.5)
+                                logger.info(f"Attempting reconnection to interaction {interaction_id}")
                                 kwargs = {"id": interaction_id, "stream": True}
                                 if last_event_id:
                                     kwargs["last_event_id"] = last_event_id
-                                stream = await self.client.aio.interactions.get(**kwargs)
-                                stream_iter = stream.__aiter__()
-                                # Continue the loop to start listening to the new stream
-                                continue
+                                    logger.info(f"Reconnecting from last_event_id: {last_event_id}")
+                                
+                                # Add timeout to reconnection to prevent hanging
+                                try:
+                                    stream = await asyncio.wait_for(
+                                        self.client.aio.interactions.get(**kwargs),
+                                        timeout=10.0
+                                    )
+                                    logger.info(f"Received stream response, creating iterator")
+                                    stream_iter = stream.__aiter__()
+                                    logger.info(f"Reconnected successfully, continuing loop to start new {INTERACTION_POLL_INTERVAL}s timeout")
+                                    # Continue the loop to start listening to the new stream
+                                    continue
+                                except asyncio.TimeoutError:
+                                    logger.warning("Reconnection timed out after 10s, will retry on next poll cycle")
+                                    # Don't continue, let it fall through to keep trying
+                                    await asyncio.sleep(1)
+                                    continue
                             elif status in ["completed", "failed", "cancelled"]:
                                 yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Interaction {status_msg}\n\n'}, finish_reason=None)]).model_dump_json()}\n\n"
                                 is_complete = True
