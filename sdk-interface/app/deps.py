@@ -18,8 +18,7 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 
-@alru_cache() 
-async def cached_list_models() -> ModelsResponse:
+async def list_models() -> ModelsResponse:
     all_models = []
     
     try:

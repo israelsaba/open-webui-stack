@@ -17,7 +17,7 @@ from app.models import (
     PreviousCompletion
 )
 
-from .deps import cached_list_models, get_client, get_previous_completion, get_db
+from .deps import list_models, get_client, get_previous_completion, get_db
 
 class RedactSecrets(logging.Filter):
     _patterns: list[re.Pattern[str]] = [
@@ -77,7 +77,7 @@ async def root() -> dict[str, str]:
 async def list_models() -> ModelsResponse:
     """List available models from all supported APIs in OpenAI format."""
     
-    all_models = await cached_list_models()
+    all_models = await list_models()
 
     if not all_models:
         raise HTTPException(
