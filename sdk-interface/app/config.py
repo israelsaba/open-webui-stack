@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic import SecretStr
+from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,11 +21,17 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "info"
     detailed_request_logging: bool = False
-    db_path: Path = Path("data/db.sqlite3")
     migrations_path: Path = Path("migrations")
     
-    # Google Deep Research polling interval (seconds)
     interaction_poll_interval: int = 30
+
+    @computed_field
+    @property
+    def db_path(self)->Path:
+        res = Path("data/db.sqlite3")
+        res.parent.mkdir(parents=True, exist_ok=True)
+        
+        return res 
 
 
 settings = Settings()

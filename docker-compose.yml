@@ -17,6 +17,7 @@ services:
     container_name: sdk-interface
     volumes:
       - ./sdk-interface:/sdk-interface/app
+      - ./sdk-interface:/sdk-interface/data
     env_file:
       - path: ./sdk-interface/.env
         required: true
@@ -27,7 +28,13 @@ services:
       PYTHONPATH: "/app"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8060/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8060/health')",
+        ]
       interval: 30s
       timeout: 3s
       retries: 3
