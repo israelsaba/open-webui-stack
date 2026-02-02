@@ -6,10 +6,10 @@ import json
 import hashlib
 
 from fastapi import Depends, Request
-from app.anthropic_client import AnthropicClient, anthropic_client
-from app.gemini_client import GeminiClient, gemini_client
-from app.grok_client import GrokClient, grok_client
-from app.models import (
+from .anthropic_client import AnthropicClient, anthropic_client
+from .gemini_client import GeminiClient, gemini_client
+from .grok_client import GrokClient, grok_client
+from .models import (
     ChatCompletionRequest,
     ModelsResponse,
     PreviousCompletion

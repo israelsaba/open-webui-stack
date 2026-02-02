@@ -1,10 +1,14 @@
 import logging
 import re
 import sqlite3
+import subprocess
 from typing import Annotated
+from pathlib import Path
 
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+
 from app.anthropic_client import AnthropicClient
 from app.gemini_client import GeminiClient
 from app.grok_client import GrokClient
@@ -17,7 +21,7 @@ from app.models import (
     PreviousCompletion
 )
 
-from .deps import list_models, get_client, get_previous_completion, get_db
+from . import deps
 
 class RedactSecrets(logging.Filter):
     _patterns: list[re.Pattern[str]] = [
@@ -45,11 +49,23 @@ for h in logging.getLogger().handlers:
 
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db_path = Path(settings.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.check_call([
+        "python", "-m", "yoyo", "apply",
+        "--database", f"sqlite:////{db_path}",
+        str(settings.migrations_path)
+    ])
+    yield
+
 
 app = FastAPI(
     title="Anthropic, Gemini & Grok to OpenAI API Bridge",
     description="OpenAI-compatible API for Anthropic, Gemini, and Grok models",
     version="1.2.0",
+    lifespan=lifespan
 )
 
 valid_tokens = parse_api_keys(settings.api_keys)
@@ -77,7 +93,7 @@ async def root() -> dict[str, str]:
 async def list_models() -> ModelsResponse:
     """List available models from all supported APIs in OpenAI format."""
     
-    all_models = await list_models()
+    all_models = await deps.list_models()
 
     if not all_models:
         raise HTTPException(
@@ -91,9 +107,9 @@ async def list_models() -> ModelsResponse:
 @app.post("/v1/chat/completions", response_model=None)
 async def create_chat_completion(
     request: ChatCompletionRequest,
-    client: Annotated[GeminiClient | AnthropicClient | GrokClient, Depends(get_client)],
-    db: Annotated[sqlite3.Connection | None, Depends(get_db)],
-    previous_completion: Annotated[PreviousCompletion| None, Depends(get_previous_completion)]
+    client: Annotated[GeminiClient | AnthropicClient | GrokClient, Depends(deps.get_client)],
+    db: Annotated[sqlite3.Connection | None, Depends(deps.get_db)],
+    previous_completion: Annotated[PreviousCompletion| None, Depends(deps.get_previous_completion)]
 ) -> ChatCompletionResponse | StreamingResponse:
     """
     Create a chat completion using Anthropic, Gemini, or Grok API.

@@ -22,16 +22,9 @@ class Settings(BaseSettings):
     log_level: str = "info"
     detailed_request_logging: bool = False
     migrations_path: Path = Path("migrations")
+    db_path: Path = Path("data/db.sqlite3")
     
     interaction_poll_interval: int = 30
-
-    @computed_field
-    @property
-    def db_path(self)->Path:
-        res = Path("data/db.sqlite3")
-        res.parent.mkdir(parents=True, exist_ok=True)
-        
-        return res 
 
 
 settings = Settings()
