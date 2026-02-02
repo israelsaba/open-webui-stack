@@ -7,7 +7,6 @@ networks:
 
 volumes:
   open-webui:
-    external: true
 
 services:
   sdk-interface:
