@@ -118,25 +118,21 @@ async def create_chat_completion(
     """
     logger.info(
         f"Chat completion request: model={request.model}, "
-        f"messages={len(request.messages)}, stream={request.stream}"
+        f"messages={len(request.messages)}, stream={request.stream}, client={client.client}"
     )
     
-    try:
-        if request.stream:
-            return StreamingResponse(
-                client.create_stream_completion(request, db, previous_completion),
-                media_type="text/event-stream"
-            )
-        else:
-            response = await client.create_completion(request)
-            logger.info(
-                f"Completion successful: tokens={response.usage.total_tokens}, "
-                f"finish_reason={response.choices[0].finish_reason}"
-            )
-            return response
-    except Exception as e:
-        logger.error(f"Error creating completion: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str("error during the execution, check server logs"))
+    if request.stream:
+        content = client.create_stream_completion(request, db, previous_completion)
+        return StreamingResponse(
+            content=content,
+            media_type="text/event-stream"
+        )
+    response = await client.create_completion(request)
+    logger.info(
+        f"Completion successful: tokens={response.usage.total_tokens}, "
+        f"finish_reason={response.choices[0].finish_reason}"
+    )
+    return response
 
 
 

@@ -1,7 +1,8 @@
+import logging
 from pathlib import Path
-from pydantic import SecretStr, computed_field
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
@@ -25,6 +26,13 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/db.sqlite3")
     
     interaction_poll_interval: int = 30
+    
+    @field_validator("port", mode="before")
+    @classmethod
+    def make_port(cls, v: str|int):
+        if isinstance(v, str):
+            return int(v.split(":", 1)[0])
+        return v
 
 
 settings = Settings()

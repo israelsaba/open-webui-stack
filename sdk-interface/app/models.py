@@ -1,5 +1,8 @@
+from __future__ import annotations
 from datetime import UTC, datetime
-from typing import Literal
+from enum import Enum
+from typing import Literal, overload
+from typing_extensions import Any, Self
 from pydantic import BaseModel, Field, field_serializer
 
 
@@ -29,7 +32,7 @@ class ModelInfo(BaseModel):
     owned_by: str
 
     @field_serializer("created")
-    def return_str(self, field: datetime) -> str | None:
+    def return_str(self, field: datetime) -> str:
         return str(field)
 
 class ModelsResponse(BaseModel):
@@ -43,7 +46,7 @@ class Usage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    reasoning_tokens: int = 0  # For models with reasoning capabilities
+    reasoning_tokens: int = 0
 
 
 class ChatCompletionChoice(BaseModel):
@@ -66,11 +69,43 @@ class ChatCompletionResponse(BaseModel):
     choices: list[ChatCompletionChoice]
     usage: Usage
 
+class Message(str, Enum):
+    STARTING = "Streaming established. Awaiting model's response"
+    DEEP_RESEARCH_RECONNECTING = "Reconnecting to stream..."
+    PRE_CONNECTION = "Connecting to {params}"
+    DEEP_RESEARCH_ID = "Continuing interaction with {params}" 
+    DEEP_RESEARCH_STATUS = "Interaction status is {params}" 
+
+    @overload
+    def __call__(self: Literal[Message.STARTING, Message.DEEP_RESEARCH_RECONNECTING]) -> str: ...
+    @overload
+    def __call__(
+        self: Literal[
+            Message.PRE_CONNECTION, 
+            Message.DEEP_RESEARCH_ID, 
+            Message.DEEP_RESEARCH_STATUS
+        ], 
+        params: str
+    ) -> str: ...
+
+
+    def __call__(self:Self, params: str | None = None) -> str:
+        prepend = f"\n\n[log {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC] "
+        postpend = "\n\n"
+        if self in {Message.STARTING, Message.DEEP_RESEARCH_RECONNECTING}:
+            return f"{prepend}{str(self.value)}{postpend}" 
+        if not params:
+            raise ValueError("missing params")
+        return f"{prepend}{str(self.value).format(params=params)}{postpend}"
+
+
+class ReasoningDelta(BaseModel):
+    reasoning_content: str
 
 class ChatCompletionStreamChoice(BaseModel):
     """A single streaming completion choice."""
     index: int
-    delta: dict[str, str]  # Can include "content", "reasoning_content", "role"
+    delta: Any
     finish_reason: Literal["stop", "length", "content_filter"] | None = None
 
 
@@ -78,9 +113,16 @@ class ChatCompletionChunk(BaseModel):
     """OpenAI-compatible streaming chunk."""
     id: str
     object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
-    created: int
+    created: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model: str
     choices: list[ChatCompletionStreamChoice]
+
+    @field_serializer("created")
+    def return_str(self, field: datetime) -> str:
+        return str(field)
+
+class CompletionChunkResponse(BaseModel):
+    data: ChatCompletionChunk
 
 class PreviousCompletion (BaseModel):
     id: int

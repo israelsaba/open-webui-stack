@@ -7,10 +7,11 @@ networks:
 
 volumes:
   open-webui:
-    external: true
+    external: ${IS_EXTERNAL_OI_VOLUME}
 
 services:
   sdk-interface:
+    profiles: []
     build:
       context: .
       dockerfile: ./sdk-interface/Dockerfile
@@ -21,9 +22,11 @@ services:
     env_file:
       - path: ./sdk-interface/.env
         required: true
+    ports:
+      - ${SDK_PORTS}
     environment:
       HOST: "0.0.0.0"
-      PORT: "8060"
+      PORT: ${SDK_PORTS:-8060}
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       PYTHONPATH: "/app"
     restart: unless-stopped

@@ -4,19 +4,22 @@ import sqlite3
 from datetime import datetime
 from collections.abc import AsyncIterator
 from typing import Any
+from typing_extensions import override
 
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types import Message
 from anthropic.types.message_stream_event import MessageStreamEvent
 
-from app.config import settings
-from app.models import (
+from .config import settings
+from .connection_client import ConnectionClient
+from .models import (
     ChatCompletionChunk,
     ChatCompletionChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionStreamChoice,
     ChatMessage,
+    Message as InterfaceMessage,
     ModelInfo,
     PreviousCompletion,
     Usage,
@@ -25,10 +28,11 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 
-class AnthropicClient:
+class AnthropicClient(ConnectionClient):
     """Client for interacting with Anthropic API."""
     
     def __init__(self) -> None:
+        super().__init__(provider="Anthropic")
         if settings.anthropic_api_key:
             api_key = settings.anthropic_api_key.get_secret_value()
             self.client = Anthropic(api_key=api_key)
@@ -38,6 +42,7 @@ class AnthropicClient:
             self.client = None
             self.async_client = None
     
+    @override
     async def list_models(self, limit: int = 100) -> list[ModelInfo]:
         """
         Fetch available models from Anthropic API.
@@ -66,6 +71,7 @@ class AnthropicClient:
             raise ValueError("Anthropic models' list came empty")
     
     
+    @override
     async def get_model(self, model_id: str) -> ModelInfo:
         """
         Fetch a specific model by ID from Anthropic API.
@@ -132,6 +138,7 @@ class AnthropicClient:
         
         return system_message, anthropic_messages
     
+    @override
     async def create_completion(
         self,
         request: ChatCompletionRequest
@@ -215,6 +222,7 @@ class AnthropicClient:
             )
         )
     
+    @override
     async def create_stream_completion(
         self,
         request: ChatCompletionRequest,
@@ -268,15 +276,24 @@ class AnthropicClient:
         created = int(time.time())
         
         thinking_status = f" (extended thinking: {request.reasoning_effort or 'medium'} effort, {thinking_budget} tokens)" if self._supports_extended_thinking(request.model) else ""
-        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Anthropic API with model {request.model}{thinking_status}...'}, finish_reason=None)]).model_dump_json()}\n\n"
-        
+
+        yield f"data: {self.reasoning_content(
+            request, 
+            completion_id, 
+            InterfaceMessage.PRE_CONNECTION(params=f"{request.model}{thinking_status}")
+        ).model_dump_json()}\n\n"
+          
+
         async with self.async_client.messages.stream(**kwargs) as stream:
-            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
-            
+            yield f"data: {self.reasoning_content(
+                request, 
+                completion_id,
+                InterfaceMessage.STARTING()
+            ).model_dump_json()}\n\n"
+
             first_event = True
             async for event in stream:
                 if first_event:
-                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
                     first_event = False
                 
                 chunk = self._convert_stream_event_new(

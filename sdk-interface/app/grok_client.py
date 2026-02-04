@@ -2,10 +2,13 @@ import logging
 import time
 import sqlite3
 from collections.abc import AsyncIterator
+from typing import override
 
-from openai import AsyncOpenAI, APIError
+from openai import AsyncOpenAI
 
+from app.anthropic_client import InterfaceMessage
 from app.config import settings
+from app.connection_client import ConnectionClient
 from app.models import (
     ChatCompletionChunk,
     ChatCompletionChoice,
@@ -21,10 +24,11 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 
-class GrokClient:
+class GrokClient(ConnectionClient):
     """Client for interacting with xAI Grok API."""
 
     def __init__(self) -> None:
+        super().__init__(provider="xAI")
         if settings.grok_api_key:
             logger.debug("Initializing Grok client with API key")
             self.client = AsyncOpenAI(
@@ -35,6 +39,7 @@ class GrokClient:
             logger.warning("Grok API key not configured. Grok models will be unavailable.")
             self.client = None
 
+    @override
     async def list_models(self, limit: int = 100) -> list[ModelInfo]:
         """
         Fetch available models from Grok API.
@@ -64,7 +69,7 @@ class GrokClient:
             logger.error(f"Failed to fetch models from Grok API: {e}", exc_info=True)
             raise
 
-
+    @override
     async def get_model(self, model_id: str) -> ModelInfo:
         """
         Fetch a specific model by ID from Grok API.
@@ -89,7 +94,8 @@ class GrokClient:
         except Exception as e:
             logger.error(f"Failed to fetch model {model_id} from API: {e}", exc_info=True)
             raise ValueError(f"Model {model_id} not found")
-
+    
+    @override
     async def create_completion(
         self,
         request: ChatCompletionRequest
@@ -99,8 +105,6 @@ class GrokClient:
             raise ValueError("Grok API key not configured")
 
         try:
-            # Pass request directly to OpenAI client
-            # We convert our internal Pydantic model to dict or args
             
             kwargs = {
                 "model": request.model,
@@ -150,7 +154,8 @@ class GrokClient:
         except Exception as e:
             logger.error(f"Error creating Grok completion: {e}", exc_info=True)
             raise
-
+    
+    @override
     async def create_stream_completion(
         self,
         request: ChatCompletionRequest,
@@ -166,8 +171,7 @@ class GrokClient:
                 "model": request.model,
                 "messages": [
                     {"role": msg.role, "content": msg.content} 
-                    for msg in request.messages
-                ],
+                    for msg in request.messages ],
                 "stream": True,
             }
             
@@ -185,25 +189,24 @@ class GrokClient:
             created_meta = int(time.time())
             
             # Send meta-reasoning: Initiating connection
-            yield f"data: {ChatCompletionChunk(id=completion_id_meta, created=created_meta, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': f'[SDK] Connecting to Grok API with model {request.model}...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {self.reasoning_content(
+                request, 
+                completion_id_meta, 
+                InterfaceMessage.PRE_CONNECTION(params=f"{request.model}")
+            ).model_dump_json()}\n\n"
             
             stream = await self.client.chat.completions.create(**kwargs)
             
-            # Send meta-reasoning: Stream started
-            yield f"data: {ChatCompletionChunk(id=completion_id_meta, created=created_meta, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Stream established, awaiting response...'}, finish_reason=None)]).model_dump_json()}\n\n"
+            yield f"data: {self.reasoning_content(
+                request, 
+                completion_id_meta,
+                InterfaceMessage.STARTING()
+            ).model_dump_json()}\n\n"
             
             first_chunk = True
             async for chunk in stream:
                 if first_chunk:
-                    # Send meta-reasoning: First response received
-                    yield f"data: {ChatCompletionChunk(id=completion_id_meta, created=created_meta, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': '[SDK] Response received, streaming content...'}, finish_reason=None)]).model_dump_json()}\n\n"
                     first_chunk = False
-                # We need to convert the OpenAI chunk to our internal chunk format and then stringify
-                # But wait, our internal format IS OpenAI format.
-                # However, the chunk object from openai library needs to be dumped to json.
-                
-                # The openai library chunk object has a .model_dump_json() method if using pydantic V2 under the hood,
-                # or we can construct our own.
                 
                 if not chunk.choices:
                     continue
@@ -211,13 +214,11 @@ class GrokClient:
                 delta = chunk.choices[0].delta
                 finish_reason = chunk.choices[0].finish_reason
                 
-                # Build delta dict with all available content
                 delta_dict = {}
                 if hasattr(delta, "role") and delta.role:
                     delta_dict["role"] = delta.role
                 if hasattr(delta, "content") and delta.content:
                     delta_dict["content"] = delta.content
-                # Support reasoning_content if present (for future Grok reasoning models)
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                     delta_dict["reasoning_content"] = delta.reasoning_content
                 
@@ -234,7 +235,6 @@ class GrokClient:
                     ]
                 )
                 
-                # Yield the chunk (exclude_none handles None values automatically)
                 yield f"data: {response_chunk.model_dump_json(exclude_none=True)}\n\n"
             
             yield "data: [DONE]\n\n"
@@ -244,5 +244,4 @@ class GrokClient:
             raise
 
 
-# Global client instance
 grok_client = GrokClient()
