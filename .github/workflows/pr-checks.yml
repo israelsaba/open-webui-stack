@@ -1,11 +1,11 @@
-name: Tests
+name: PR Checks
 
 on:
   push:
     branches: [main]
     paths:
       - 'sdk-interface/**'
-      - '.github/workflows/test.yml'
+      - '.github/workflows/pr-checks.yml'
   pull_request:
     branches: [main]
     paths:
