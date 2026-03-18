@@ -14,5 +14,8 @@ respx==0.21.1
 # Coverage reporting
 coverage[toml]==7.6.9
 
+# Linting
+ruff==0.8.4
+
 # Environment management (already in requirements.txt, but explicit for tests)
 python-dotenv==1.0.1

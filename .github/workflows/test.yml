@@ -13,6 +13,27 @@ on:
       - '.github/workflows/test.yml'
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./sdk-interface
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: "3.12"
+      
+      - name: Install ruff
+        run: pip install ruff==0.8.4 --quiet
+      
+      - name: Run ruff
+        run: ruff check app tests --output-format=github
+
   test:
     runs-on: ubuntu-latest
     
@@ -26,10 +47,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
       
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.5.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -37,7 +58,7 @@ jobs:
       
       - name: Cache pytest results
         id: pytest-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: |
             sdk-interface/.pytest_cache
@@ -52,11 +73,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip --quiet
           pip install -r requirements-test.lock --quiet
-      
-      - name: Lint with ruff
-        run: |
-          ruff check app tests --output-format=github
-        continue-on-error: true
       
       - name: Check if tests can be skipped
         id: check-skip
@@ -92,7 +108,7 @@ jobs:
       
       - name: Upload coverage to Codecov
         if: steps.check-skip.outputs.skip != 'true'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5.2.1
         with:
           files: ./sdk-interface/coverage.xml
           flags: unittests
@@ -102,7 +118,7 @@ jobs:
       
       - name: Upload coverage report as artifact
         if: steps.check-skip.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.5.0
         with:
           name: coverage-report-${{ matrix.python-version }}
           path: sdk-interface/htmlcov/
