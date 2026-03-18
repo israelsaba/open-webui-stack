@@ -76,3 +76,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           MINIMUM_GREEN: 70
           MINIMUM_ORANGE: 50
+          COVERAGE_PATH: sdk-interface
