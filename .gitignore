@@ -76,3 +76,6 @@ coverage.xml
 
 # Ruff
 .ruff_cache/
+
+# pip-tools
+.pip-tools-cache/
