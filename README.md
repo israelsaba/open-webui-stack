@@ -247,17 +247,199 @@ You should see three services running: `open-webui`, `sdk-interface`, and `watch
 
 #### Step 6: Access Your AI Hub
 
+**Finding Your Access URL:**
+
 1. In AWS Console, find your instance's **Public IPv4 address** (looks like `3.XXX.XXX.XXX`)
 2. Open your browser and go to: `http://YOUR-IP-ADDRESS:8090`
-3. Create your account (first user becomes admin)
-4. **Important**: Go to Settings → Interface:
-   - ❌ **Disable** "Auto-Generate Title"
-   - ❌ **Disable** "Auto-Follow-Up Prompts"
-5. Go to Settings → Connections → **Add OpenAI Connection**:
-   - **API Base URL**: `http://sdk-interface:8060/v1`
-   - **API Key**: Leave blank or use any text (auth is handled internally)
 
-**You're done!** 🎉 Try asking Deep Research a question like "Research the latest developments in quantum computing."
+**First-Time Setup:**
+
+3. **Create your account** (first user becomes admin automatically)
+4. You'll see the Open WebUI interface - but no models yet!
+
+**Configure Interface Settings (Important for Deep Research):**
+
+5. Click your profile picture (bottom left) → **Settings** → **Interface**
+6. Scroll down and **disable** these two options:
+   - ❌ **"Auto-Generate Title"** - Would waste Deep Research quota on title generation
+   - ❌ **"Auto-Follow-Up Prompts"** - Would waste quota on suggestion generation
+7. Click **Save**
+
+**Connect to SDK Interface (The Magic Step!):**
+
+8. Go to **Settings** → **Connections** (or **Admin Panel** → **Connections**)
+9. Click **"+ Add OpenAI Connection"** (or **"Add Connection"**)
+10. Fill in:
+    - **Name**: `SDK Interface` (or any name you like)
+    - **API Base URL**: `http://sdk-interface:8060/v1`
+    - **API Key**: Leave blank OR type anything (like `test` - it's not used)
+11. Click **Save** or **Add**
+12. You should see ✓ Success message
+
+**Verify It's Working:**
+
+13. Go back to the main chat interface
+14. Click the model dropdown (top left, says "Select a model")
+15. You should see models like:
+    - `deep-research-pro-preview-12-2025`
+    - `claude-sonnet-4-5-20250929`
+    - `gemini-2.0-flash-exp`
+    - `grok-2-vision-1212`
+
+**🎉 You're done!** Try asking: *"Research the latest developments in quantum computing"*
+
+---
+
+#### 🔧 Troubleshooting: Can't Connect to SDK Interface?
+
+**Problem: No models showing up or connection fails**
+
+This is usually a Docker networking issue. Let's debug:
+
+**Step 1: Check Services Are Running**
+
+```bash
+docker compose ps
+```
+
+You should see:
+```
+NAME            STATUS
+open-webui      Up (healthy)
+sdk-interface   Up (healthy)
+watchtower      Up (healthy)
+```
+
+**If sdk-interface is not running:**
+```bash
+docker compose logs sdk-interface --tail=50
+docker compose restart sdk-interface
+```
+
+**Step 2: Verify SDK Interface Is Responding**
+
+```bash
+# Test from inside the open-webui container
+docker compose exec open-webui curl http://sdk-interface:8060/health
+
+# Should return: {"status":"healthy"}
+```
+
+**If this fails**, the Docker network is broken:
+```bash
+docker compose down
+docker compose up -d
+```
+
+**Step 3: Check Docker Network**
+
+```bash
+docker network ls | grep open-webui
+docker network inspect open-webui-net
+```
+
+You should see both `open-webui` and `sdk-interface` containers in the network.
+
+**Step 4: Common Issues and Fixes**
+
+| Issue | Solution |
+|-------|----------|
+| "Connection refused" | SDK Interface not running. Run: `docker compose restart sdk-interface` |
+| "Network not found" | Run: `docker compose down && docker compose up -d` |
+| "Name does not resolve" | Use `http://sdk-interface:8060/v1` NOT `http://localhost:8060/v1` |
+| "No models" but connection OK | Check logs: `docker compose logs sdk-interface \| grep ERROR` |
+
+**Understanding Docker Networking:**
+
+- **Inside Docker** (container to container): Use `http://sdk-interface:8060` ✅
+- **From your host** (your computer): Use `http://localhost:8060` ✅  
+- **From internet**: Use `http://YOUR-IP:8060` (if port exposed) ✅
+
+**Open WebUI runs INSIDE Docker**, so it must use the container name `sdk-interface`, NOT `localhost`!
+
+**Why `localhost` doesn't work:**
+- `localhost` from inside the `open-webui` container refers to ITSELF, not your computer
+- Docker provides DNS that resolves `sdk-interface` to the correct container IP
+- This is why we use service names in `docker-compose.yml`
+
+**Step 5: Manual Connection Test**
+
+If you want to verify the SDK Interface works from your computer:
+
+```bash
+# This should return a list of models
+curl http://localhost:8060/v1/models
+```
+
+If this works but Open WebUI can't connect, it's definitely a Docker network issue.
+
+**Step 6: Nuclear Option (Fresh Start)**
+
+If nothing works:
+
+```bash
+# Stop everything
+docker compose down
+
+# Remove network (Docker will recreate it)
+docker network rm open-webui-net
+
+# Start fresh
+docker compose up -d
+
+# Wait 30 seconds, then check
+docker compose ps
+```
+
+---
+
+#### 📍 Understanding File Paths (Mac/Linux)
+
+When you see paths in commands, here's what they mean:
+
+**Absolute Paths** (start from root):
+- `/opt/open-webui-stack` - Starts from system root `/`
+- `/home/username/projects` - Your user's home directory
+- Use these when you want to be explicit about location
+
+**Relative Paths** (relative to where you are):
+- `./sdk-interface` - Current directory, then `sdk-interface` folder
+- `../parent-folder` - Go up one level, then into `parent-folder`
+- `~` - Shortcut for your home directory
+  - Mac: `/Users/your-username`
+  - Linux: `/home/your-username`
+
+**Examples:**
+```bash
+# These all go to the same place (if you're in your home directory)
+cd ~/open-webui-stack
+cd /home/username/open-webui-stack  # Linux
+cd /Users/username/open-webui-stack  # Mac
+cd open-webui-stack  # If already in home directory
+
+# Relative navigation
+cd ~/open-webui-stack
+cd sdk-interface        # Now in ~/open-webui-stack/sdk-interface
+cd ../                  # Back to ~/open-webui-stack
+cd ..                   # Back to ~
+```
+
+**Where To Install:**
+
+**On Mac/Linux Desktop:**
+- Recommended: `~/projects/open-webui-stack` or `~/open-webui-stack`
+- Why: Easy to find, you own it, no sudo needed
+
+**On Server (AWS/Cloud):**
+- Recommended: `/opt/open-webui-stack`
+- Why: Standard location for optional software, persists across user sessions
+
+**Current directory** check:
+```bash
+pwd  # Shows where you are right now
+```
+
+---
 
 #### Step 7: Secure Your Setup (Important!)
 
@@ -322,41 +504,90 @@ docker compose version
 
 #### Step 3: Deploy the Stack
 
+**Understanding Paths:**
+- `~` means your home directory (`/home/your-username` on Linux)
+- We'll install to `~/open-webui-stack` which is easy to find and doesn't require sudo
+
 ```bash
 # Install git if not present
 sudo apt install git -y
 
+# Go to your home directory
+cd ~
+
 # Clone repository
 git clone https://github.com/israelsaba/open-webui-stack.git
+
+# Enter the project directory
 cd open-webui-stack
 
-# Set up configuration
-cd sdk-interface
-cp .env.example .env
-nano .env
+# Check where you are (should show: /home/your-username/open-webui-stack)
+pwd
 ```
 
-Add your API keys (see Path A, Step 5 for how to get them), then:
+#### Step 4: Configure API Keys
+
+**Using the root Makefile (recommended):**
 
 ```bash
-# Save with Ctrl+O, Enter, Ctrl+X
-cd ..
+# From the open-webui-stack directory
+make setup
 
-# Create volume
+# This creates .env file in the root
+# Edit it with your favorite editor
+nano .env
+# OR
+vim .env
+# OR for beginners
+gedit .env
+```
+
+**In the .env file, find and set:**
+```bash
+SDK__GOOGLE_API_KEY=your-google-api-key-here
+SDK__ANTHROPIC_API_KEY=your-anthropic-key-here  # Optional
+SDK__GROK_API_KEY=your-grok-key-here  # Optional
+```
+
+Get API keys from:
+- Google: [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+- Anthropic: [console.anthropic.com](https://console.anthropic.com/)
+- xAI: [console.x.ai](https://console.x.ai/)
+
+**Save the file:**
+- nano: Press `Ctrl+O`, then `Enter`, then `Ctrl+X`
+- vim: Press `Esc`, type `:wq`, press `Enter`
+- gedit: Click Save, then close
+
+#### Step 5: Start Services
+
+```bash
+# Create Docker volume for Open WebUI data
 docker volume create open-webui
 
-# Start services
+# Start all services (from open-webui-stack directory)
+make up
+
+# OR manually with docker compose:
 docker compose up -d
 
-# Check status
+# Check status (all should show "Up (healthy)")
 docker compose ps
 ```
 
-#### Step 4: Access Your Hub
+#### Step 6: Access Your Hub
 
-Open Firefox or Chrome and go to: `http://localhost:8090`
+Open your browser and go to: `http://localhost:8090`
 
-Follow the same setup from Path A, Step 6!
+**Follow the detailed setup from Path A, Step 6 above** - it includes:
+- Creating your account
+- Disabling auto-title/auto-follow-up
+- **Connecting to SDK Interface** (very important!)
+- Troubleshooting if connection fails
+
+**⚠️ Important:** Use `http://sdk-interface:8060/v1` as the API URL, NOT `http://localhost:8060/v1`
+
+See the [Troubleshooting section above](#🔧-troubleshooting-cant-connect-to-sdk-interface) if you have connection issues.
 
 ---
 
@@ -377,38 +608,70 @@ Perfect for developers who want a clean, reproducible environment.
    - Search for "Dev Containers"
    - Click "Install" on the Microsoft extension
 
-#### Step 2: Clone and Open in Container
+#### Step 2: Clone and Open
+
+**Mac/Linux paths:**
+- We'll clone to your home directory for easy access
+- `~` = `/Users/your-username` (Mac) or `/home/your-username` (Linux)
 
 ```bash
+# Open Terminal (or use VSCode's built-in terminal)
+cd ~
+
 # Clone repository
 git clone https://github.com/israelsaba/open-webui-stack.git
+
+# Open in VSCode
 cd open-webui-stack
 code .
 ```
 
-In VSCode:
+**Optional - Open in Dev Container:**
+
+If you want an isolated development environment:
 1. Press `Ctrl/Cmd + Shift + P`
 2. Type "Dev Containers: Reopen in Container"
 3. Wait for container to build (2-5 minutes first time)
 
-#### Step 3: Set Up and Run
+#### Step 3: Configure and Start
 
-In VSCode's integrated terminal:
+**In VSCode's integrated terminal** (Terminal → New Terminal):
 
 ```bash
-cd sdk-interface
-cp .env.example .env
-# Edit .env with your API keys using VSCode editor
-
-# Run migrations
+# Use the root Makefile for easy setup
 make setup
-cd ..
 
-# Start services
-docker compose up -d
+# Edit .env file directly in VSCode
+# File explorer (left side) → click .env
+# Add your API keys:
+#   SDK__GOOGLE_API_KEY=your-key
+#   SDK__ANTHROPIC_API_KEY=your-key (optional)
+#   SDK__GROK_API_KEY=your-key (optional)
+# Save with Cmd/Ctrl + S
+
+# Create Docker volume
+docker volume create open-webui
+
+# Start all services
+make up
 ```
 
-Access at `http://localhost:8090`
+**Alternative (manual docker compose):**
+```bash
+docker compose up -d
+docker compose ps
+```
+
+#### Step 4: Access and Configure
+
+1. Open browser: `http://localhost:8090`
+2. **Follow Path A, Step 6** for complete setup instructions including:
+   - Creating your account
+   - Connecting to SDK Interface (`http://sdk-interface:8060/v1`)
+   - Disabling auto-title/auto-follow-up
+   - Troubleshooting connection issues
+
+**Having issues?** See the [Troubleshooting section](#🔧-troubleshooting-cant-connect-to-sdk-interface) above.
 
 ---
 
@@ -418,12 +681,33 @@ Access at `http://localhost:8090`
 
 ```bash
 git clone https://github.com/israelsaba/open-webui-stack.git
-cd open-webui-stack/sdk-interface
-cp .env.example .env
-# Configure API keys in .env
+cd open-webui-stack
+
+# Setup (creates .env from .env.example)
+make setup
+
+# Edit root .env and add your API keys with SDK__ prefix:
+# SDK__GOOGLE_API_KEY=your-key
+# SDK__ANTHROPIC_API_KEY=your-key
+# SDK__GROK_API_KEY=your-key
+
+# Start everything
 docker volume create open-webui
-cd .. && docker compose up -d
+make up
+
+# Or manually:
+# docker compose up -d
 ```
+
+**Root Makefile Commands:**
+- `make help` - Show all available commands
+- `make setup` - Initialize project and sdk-interface
+- `make test` - Run tests (mock mode)
+- `make test-cov` - Run tests with coverage
+- `make test-real` - Run tests against real APIs
+- `make up/down/restart` - Docker compose operations
+- `make logs` - View logs from all services
+- `make run` - Run sdk-interface in dev mode
 
 ### Architecture Overview
 
