@@ -4,8 +4,6 @@ Pytest configuration and fixtures for SDK Interface tests.
 
 import os
 import pytest
-import httpx
-import respx
 from pathlib import Path
 from typing import Generator
 from dotenv import load_dotenv
@@ -100,7 +98,6 @@ def client() -> Generator[TestClient, None, None]:
     - Cached mock data: Data created once
     """
     from app.models import ModelInfo, ChatCompletionResponse, ChatCompletionChunk
-    from unittest.mock import AsyncMock, MagicMock
     
     from app.models import ChatMessage, ChatCompletionChoice, Usage, ChatCompletionStreamChoice
     import time
@@ -160,17 +157,8 @@ def client() -> Generator[TestClient, None, None]:
     )
     
     # Create streaming chunks (delta is Any type, use dict)
-    _chunk_template = lambda model: ChatCompletionChunk(
-        id="chatcmpl-test",
-        object="chat.completion.chunk",
-        created=_timestamp,
-        model=model,
-        choices=[ChatCompletionStreamChoice(
-            index=0,
-            delta={"content": "Test", "role": "assistant"},
-            finish_reason="stop"
-        )]
-    )
+    def _chunk_template(model):
+        return ChatCompletionChunk(id="chatcmpl-test", object="chat.completion.chunk", created=_timestamp, model=model, choices=[ChatCompletionStreamChoice(index=0, delta={"content": "Test", "role": "assistant"}, finish_reason="stop")])
     _anthropic_chunk = _chunk_template("claude-sonnet-4-5-20250929")
     _google_chunk = _chunk_template("gemini-2.0-flash-exp")
     _xai_chunk = _chunk_template("grok-2-vision-1212")

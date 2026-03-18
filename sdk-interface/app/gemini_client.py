@@ -287,7 +287,7 @@ class GeminiClient(ConnectionClient):
         interaction_id = previous_completion.interaction_id if previous_completion and previous_completion.interaction_id else None
         last_event_id = None
         is_complete = False
-        last_poll_time = time.time()
+        time.time()
         
         if not interaction_id:
             yield f"data: {self.reasoning_content(
@@ -362,7 +362,7 @@ class GeminiClient(ConnectionClient):
                 if event.event_type in ['interaction.complete', 'error']:
                     is_complete = True
                 
-                last_poll_time = time.time()
+                time.time()
                 
             except asyncio.TimeoutError:
                 if interaction_id:
@@ -424,7 +424,7 @@ class GeminiClient(ConnectionClient):
                                     self.client.aio.interactions.get(**kwargs),
                                     timeout=10.0
                                 )
-                                logger.info(f"Received stream response, creating iterator")
+                                logger.info("Received stream response, creating iterator")
                                 stream_iter = stream.__aiter__()
                                 logger.info(f"Reconnected successfully, continuing loop to start new {poll_interval}s timeout")
                                 continue

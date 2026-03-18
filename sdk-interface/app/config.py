@@ -1,5 +1,4 @@
 import logging
-import os
 from pathlib import Path
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
