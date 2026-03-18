@@ -69,11 +69,13 @@ jobs:
           path: sdk-interface/htmlcov/
           retention-days: 7
       
-      - name: Comment PR with coverage
-        if: github.event_name == 'pull_request'
-        uses: py-cov-action/python-coverage-comment-action@v3
-        with:
-          GITHUB_TOKEN: ${{ github.token }}
-          MINIMUM_GREEN: 70
-          MINIMUM_ORANGE: 50
-          COVERAGE_PATH: sdk-interface
+      # Disabled: Coverage comment action has path resolution issues
+      # Coverage is still uploaded to Codecov and artifact
+      # - name: Comment PR with coverage
+      #   if: github.event_name == 'pull_request'
+      #   uses: py-cov-action/python-coverage-comment-action@v3
+      #   with:
+      #     GITHUB_TOKEN: ${{ github.token }}
+      #     MINIMUM_GREEN: 70
+      #     MINIMUM_ORANGE: 50
+      #     COVERAGE_PATH: sdk-interface
