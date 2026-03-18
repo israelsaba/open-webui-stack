@@ -6,7 +6,6 @@ from typing import override
 
 from openai import AsyncOpenAI
 
-from app.anthropic_client import InterfaceMessage
 from app.config import settings
 from app.connection_client import ConnectionClient
 from app.models import (
@@ -16,6 +15,7 @@ from app.models import (
     ChatCompletionResponse,
     ChatCompletionStreamChoice,
     ChatMessage,
+    Message as InterfaceMessage,
     ModelInfo,
     PreviousCompletion,
     Usage,

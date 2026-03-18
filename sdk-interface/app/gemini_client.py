@@ -2,7 +2,6 @@ import sqlite3
 import logging
 import time
 import asyncio
-from datetime import datetime
 from collections.abc import AsyncIterator
 from typing import Any
 from pydantic import BaseModel
