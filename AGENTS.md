@@ -10,13 +10,14 @@ You are an autonomous agent responsible for deploying and maintaining an AI Rese
 
 Before starting any deployment, verify:
 
-- [ ] You have SSH access or cloud provider credentials
 - [ ] You have API keys for at least Google (required for Deep Research)
 - [ ] Target environment has Docker and Docker Compose installed
 - [ ] You have permissions to create/modify files and run containers
-- [ ] You understand the user's deployment target (AWS, local, etc.)
+- [ ] You are deploying to a local or self-hosted environment (not cloud)
 
 ## 🚀 Standard Deployment Procedure
+
+**Important:** Agents should only deploy to local/self-hosted environments. All changes must be made through the user's local console, not directly on cloud infrastructure.
 
 ### Phase 1: Environment Preparation
 
@@ -35,7 +36,7 @@ df -h    # At least 20GB free space
 
 **1.2 Install Docker (if needed)**
 ```bash
-# Ubuntu/Debian
+# Ubuntu/Debian/Mac/Windows
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 sudo usermod -aG docker $USER
@@ -51,7 +52,7 @@ docker run hello-world
 
 **2.1 Clone Repository**
 ```bash
-cd /opt  # or user's preferred directory
+# Clone to user's preferred directory (e.g., ~/projects or ~/open-webui-stack)
 git clone https://github.com/israelsaba/open-webui-stack.git
 cd open-webui-stack
 ```
@@ -60,53 +61,51 @@ cd open-webui-stack
 
 **2.2 Configure Environment**
 ```bash
-cd sdk-interface
-cp .env.example .env
+# Use the root Makefile for setup
+make setup
 
-# Use secure method to set API keys
-# NEVER log or echo actual API keys
-cat > .env <<EOF
-GOOGLE_API_KEY=${GOOGLE_API_KEY}
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-GROK_API_KEY=${GROK_API_KEY:-}
-API_KEYS=admin:$(openssl rand -hex 32 | base64 | head -c 32)
-LOG_LEVEL=info
-EOF
-
-# Verify (without showing secrets)
-grep -q "GOOGLE_API_KEY=" .env && echo "✓ Google API key set"
+# This creates .env at the root with SDK__ prefixed variables
+# Edit with user's preferred editor
+nano .env  # or vim, gedit, code, etc.
 ```
 
-**Expected Output:** Confirmation that keys are set
-
-**2.3 Set Up Root Environment**
+Add API keys to `.env`:
 ```bash
-cd ..
-cat > .env <<EOF
-IS_EXTERNAL_OI_VOLUME=false
-SDK_PORTS=8060:8060
-EOF
+SDK__GOOGLE_API_KEY=your-google-key-here
+SDK__ANTHROPIC_API_KEY=your-anthropic-key-here  # Optional
+SDK__GROK_API_KEY=your-grok-key-here  # Optional
 ```
+
+**NEVER log or echo actual API keys**
+
+**Expected Output:** `.env` file created and configured
 
 ### Phase 3: Database Setup
 
-**3.1 Run Migrations**
+**3.1 Database Migrations (Auto-Applied)**
+
+**Important:** Database migrations run automatically when the sdk-interface container starts. The FastAPI app uses yoyo-migrations to apply any pending schema changes on startup.
+
+**Manual verification (optional):**
 ```bash
-cd sdk-interface
-
-# Install dependencies if running migrations locally
-python3 -m venv .venv
-source .venv/bin/activate
-pip install yoyo-migrations
-
-# Apply migrations
-yoyo apply --database sqlite:///data/db.sqlite3 migrations/
-
-# Verify
-sqlite3 data/db.sqlite3 "SELECT name FROM sqlite_master WHERE type='table';"
+# After containers are running, verify tables exist
+docker compose exec sdk-interface sqlite3 /app/data/db.sqlite3 "SELECT name FROM sqlite_master WHERE type='table';"
 ```
 
 **Expected Output:** Tables including `research_hashes` should be listed
+
+**What the migrations create:**
+- `research_hashes` table: Stores MD5 hashes of Deep Research queries to prevent duplicate expensive requests (Deep Research has 1 req/min limit)
+- Indexes for performance optimization
+
+**Manual migration (only needed for development/debugging):**
+```bash
+cd sdk-interface
+python3 -m venv .venv
+source .venv/bin/activate
+pip install yoyo-migrations
+yoyo apply --database sqlite:///data/db.sqlite3 migrations/
+```
 
 ### Phase 4: Container Deployment
 

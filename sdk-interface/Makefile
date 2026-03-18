@@ -10,19 +10,14 @@ ACTIVATE = . $(VENV_NAME)/bin/activate
 # You can override PYTHON to python and adjust activate below accordingly
 # ============================
 
-.PHONY: setup setup-dev setup-test run generate-token clean nvim repl test test-cov test-watch lint format 
+.PHONY: setup run generate-token clean nvim repl test lint
 	
 help:
 	@echo "Makefile commands:"
-	@echo "  setup          - create venv and install ALL dependencies (dev + test)"
-	@echo "  setup-dev      - create venv and install dev dependencies"
-	@echo "  setup-test     - create venv and install test dependencies"
+	@echo "  setup          - prepare environment for run or test"
 	@echo "  run            - starts the server locally with hot reload" 
 	@echo "  test           - run tests (same as CI/CD)"
-	@echo "  test-cov       - run tests with coverage report"
-	@echo "  test-watch     - run tests in watch mode"
-	@echo "  lint           - run linter (ruff)"
-	@echo "  format         - format code with ruff"
+	@echo "  lint           - fix all lint issues (safe + unsafe) and test with coverage"
 	@echo "  generate-token - generate a secure API token for authentication"
 	@echo "  clean          - remove virtual environment and *.pyc/__pycache__"
 	@echo "  nvim           - open Neovim in project with venv active"

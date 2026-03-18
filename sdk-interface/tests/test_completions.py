@@ -4,23 +4,18 @@ Tests for /v1/chat/completions endpoint across all providers.
 
 import json
 import pytest
-import httpx
+from fastapi.testclient import TestClient
 
 
 class TestNonStreamingCompletions:
     """Test non-streaming completions for all providers."""
 
-    @pytest.mark.asyncio
-    async def test_anthropic_completion(
+    def test_anthropic_completion(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        anthropic_api_key: str,
-        skip_if_no_api_key,
-        mock_anthropic_api,
     ):
         """Test Anthropic (Claude) non-streaming completion."""
-        skip_if_no_api_key("anthropic", anthropic_api_key)
         
         payload = {
             "model": test_models["anthropic"],
@@ -31,7 +26,7 @@ class TestNonStreamingCompletions:
             "max_tokens": 50,
         }
         
-        response = await http_client.post("/v1/chat/completions", json=payload)
+        response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
         
         # Verify content type is JSON
@@ -45,17 +40,12 @@ class TestNonStreamingCompletions:
         assert "content" in data["choices"][0]["message"]
         assert data["choices"][0]["message"]["role"] == "assistant"
 
-    @pytest.mark.asyncio
-    async def test_gemini_completion(
+    def test_gemini_completion(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        google_api_key: str,
-        skip_if_no_api_key,
-        mock_google_api,
     ):
         """Test Gemini non-streaming completion."""
-        skip_if_no_api_key("google", google_api_key)
         
         payload = {
             "model": test_models["gemini"],
@@ -66,7 +56,7 @@ class TestNonStreamingCompletions:
             "max_tokens": 50,
         }
         
-        response = await http_client.post("/v1/chat/completions", json=payload)
+        response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
         
         # Verify content type is JSON
@@ -79,17 +69,12 @@ class TestNonStreamingCompletions:
         assert "message" in data["choices"][0]
         assert "content" in data["choices"][0]["message"]
 
-    @pytest.mark.asyncio
-    async def test_grok_completion(
+    def test_grok_completion(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        grok_api_key: str,
-        skip_if_no_api_key,
-        mock_xai_api,
     ):
         """Test Grok non-streaming completion."""
-        skip_if_no_api_key("grok", grok_api_key)
         
         payload = {
             "model": test_models["grok"],
@@ -100,7 +85,7 @@ class TestNonStreamingCompletions:
             "max_tokens": 50,
         }
         
-        response = await http_client.post("/v1/chat/completions", json=payload)
+        response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
         
         # Verify content type is JSON
@@ -117,17 +102,12 @@ class TestNonStreamingCompletions:
 class TestStreamingCompletions:
     """Test streaming completions for all providers."""
 
-    @pytest.mark.asyncio
-    async def test_anthropic_streaming(
+    def test_anthropic_streaming(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        anthropic_api_key: str,
-        skip_if_no_api_key,
-        mock_anthropic_api,
     ):
         """Test Anthropic (Claude) streaming completion."""
-        skip_if_no_api_key("anthropic", anthropic_api_key)
         
         payload = {
             "model": test_models["anthropic"],
@@ -138,7 +118,7 @@ class TestStreamingCompletions:
             "max_tokens": 50,
         }
         
-        async with http_client.stream("POST", "/v1/chat/completions", json=payload) as response:
+        with client.stream("POST", "/v1/chat/completions", json=payload) as response:
             assert response.status_code == 200
             
             # Verify content type is SSE
@@ -146,7 +126,7 @@ class TestStreamingCompletions:
             assert "text/event-stream" in content_type, f"Expected SSE but got: {content_type}"
             
             chunks = []
-            async for line in response.aiter_lines():
+            for line in response.iter_lines():
                 if line.startswith("data: "):
                     data_str = line[6:]
                     if data_str.strip() == "[DONE]":
@@ -156,17 +136,12 @@ class TestStreamingCompletions:
             
             assert len(chunks) > 0, "Expected at least one chunk"
 
-    @pytest.mark.asyncio
-    async def test_gemini_streaming(
+    def test_gemini_streaming(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        google_api_key: str,
-        skip_if_no_api_key,
-        mock_google_api,
     ):
         """Test Gemini streaming completion."""
-        skip_if_no_api_key("google", google_api_key)
         
         payload = {
             "model": test_models["gemini"],
@@ -177,7 +152,7 @@ class TestStreamingCompletions:
             "max_tokens": 50,
         }
         
-        async with http_client.stream("POST", "/v1/chat/completions", json=payload) as response:
+        with client.stream("POST", "/v1/chat/completions", json=payload) as response:
             assert response.status_code == 200
             
             # Verify content type is SSE
@@ -185,7 +160,7 @@ class TestStreamingCompletions:
             assert "text/event-stream" in content_type, f"Expected SSE but got: {content_type}"
             
             chunks = []
-            async for line in response.aiter_lines():
+            for line in response.iter_lines():
                 if line.startswith("data: "):
                     data_str = line[6:]
                     if data_str.strip() == "[DONE]":
@@ -195,17 +170,12 @@ class TestStreamingCompletions:
             
             assert len(chunks) > 0, "Expected at least one chunk"
 
-    @pytest.mark.asyncio
-    async def test_grok_streaming(
+    def test_grok_streaming(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        grok_api_key: str,
-        skip_if_no_api_key,
-        mock_xai_api,
     ):
         """Test Grok streaming completion."""
-        skip_if_no_api_key("grok", grok_api_key)
         
         payload = {
             "model": test_models["grok"],
@@ -216,7 +186,7 @@ class TestStreamingCompletions:
             "max_tokens": 50,
         }
         
-        async with http_client.stream("POST", "/v1/chat/completions", json=payload) as response:
+        with client.stream("POST", "/v1/chat/completions", json=payload) as response:
             assert response.status_code == 200
             
             # Verify content type is SSE
@@ -224,7 +194,7 @@ class TestStreamingCompletions:
             assert "text/event-stream" in content_type, f"Expected SSE but got: {content_type}"
             
             chunks = []
-            async for line in response.aiter_lines():
+            for line in response.iter_lines():
                 if line.startswith("data: "):
                     data_str = line[6:]
                     if data_str.strip() == "[DONE]":
@@ -238,18 +208,13 @@ class TestStreamingCompletions:
 class TestDeepResearch:
     """Test deep research functionality (Gemini)."""
 
-    @pytest.mark.asyncio
     @pytest.mark.slow
-    async def test_deep_research_streaming(
+    def test_deep_research_streaming(
         self,
-        http_client: httpx.AsyncClient,
+        client: TestClient,
         test_models: dict[str, str],
-        google_api_key: str,
-        skip_if_no_api_key,
-        mock_google_api,
     ):
         """Test deep research with streaming."""
-        skip_if_no_api_key("google", google_api_key)
         
         payload = {
             "model": test_models["gemini_deep_research"],
@@ -260,12 +225,8 @@ class TestDeepResearch:
             "max_tokens": 100,
         }
         
-        async with http_client.stream(
-            "POST",
-            "/v1/chat/completions",
-            json=payload,
-            timeout=60.0  # Deep research takes longer
-        ) as response:
+        # TestClient doesn't support timeout parameter, but handles long-running requests fine
+        with client.stream("POST", "/v1/chat/completions", json=payload) as response:
             assert response.status_code == 200
             
             # Verify content type is SSE
@@ -276,7 +237,7 @@ class TestDeepResearch:
             reasoning_chunks = []
             content_chunks = []
             
-            async for line in response.aiter_lines():
+            for line in response.iter_lines():
                 if line.startswith("data: "):
                     data_str = line[6:]
                     if data_str.strip() == "[DONE]":

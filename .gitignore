@@ -59,6 +59,7 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+:memory:
 
 # Yoyo lock files
 .yoyo-lock

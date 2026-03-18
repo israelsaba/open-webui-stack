@@ -53,9 +53,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     db_path = Path(settings.db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    # Use absolute path for database
+    db_absolute = db_path.resolve()
     subprocess.check_call([
         "python", "-m", "yoyo", "apply",
-        "--database", f"sqlite:////{db_path}",
+        "--batch",  # Auto-apply without prompting (essential for tests and production)
+        "--database", f"sqlite:///{db_absolute}",
         str(settings.migrations_path)
     ])
     yield

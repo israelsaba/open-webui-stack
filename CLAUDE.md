@@ -52,10 +52,10 @@ When a human asks for help, use these questions to quickly understand context:
 4. "Are there any performance or rate limit considerations?"
 
 ### For Deployment Issues
-1. "What's your deployment environment (AWS, local, Docker Desktop)?"
+1. "What's your deployment environment (local machine, self-hosted server, Docker Desktop)?"
 2. "Can you share your docker-compose.yml and .env structure (without secrets)?"
 3. "What's the output of `docker compose ps` and `docker compose logs`?"
-4. "Have you completed the database migrations?"
+4. "Are the containers running? Check with `docker compose ps`"
 
 ### For Testing/CI Issues
 1. "Are tests failing locally or only in CI?"

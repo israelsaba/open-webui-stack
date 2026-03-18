@@ -2,19 +2,12 @@
 Tests for /v1/models endpoint.
 """
 
-import pytest
-import httpx
+from fastapi.testclient import TestClient
 
 
-@pytest.mark.asyncio
-async def test_list_models(
-    http_client: httpx.AsyncClient,
-    mock_anthropic_api,
-    mock_google_api,
-    mock_xai_api
-):
+def test_list_models(client: TestClient):
     """Test /v1/models endpoint returns available models."""
-    response = await http_client.get("/v1/models")
+    response = client.get("/v1/models")
     assert response.status_code == 200
     
     data = response.json()
@@ -30,16 +23,9 @@ async def test_list_models(
     assert first_model["object"] == "model"
 
 
-@pytest.mark.asyncio
-async def test_models_include_test_models(
-    http_client: httpx.AsyncClient,
-    test_models: dict[str, str],
-    mock_anthropic_api,
-    mock_google_api,
-    mock_xai_api
-):
+def test_models_include_test_models(client: TestClient, test_models: dict[str, str]):
     """Test that our test models are available in the list."""
-    response = await http_client.get("/v1/models")
+    response = client.get("/v1/models")
     assert response.status_code == 200
     
     data = response.json()

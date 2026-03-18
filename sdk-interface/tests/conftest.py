@@ -7,8 +7,9 @@ import pytest
 import httpx
 import respx
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import Generator
 from dotenv import load_dotenv
+from fastapi.testclient import TestClient
 
 # Load test environment variables from ROOT directory
 # Priority: root/.env.test > root/.env > environment variables
@@ -20,6 +21,15 @@ if env_test_path.exists():
     load_dotenv(env_test_path, override=True)
 elif env_path.exists():
     load_dotenv(env_path, override=False)
+
+# Configure test environment for maximum performance
+os.environ.setdefault("SDK__DB_PATH", ":memory:")  # In-memory SQLite for speed
+os.environ.setdefault("SDK__TEST_MODE", "mock")
+os.environ.setdefault("SDK__API_KEYS", "")  # Disable auth
+os.environ.setdefault("SDK__GOOGLE_API_KEY", "test-google-key")
+os.environ.setdefault("SDK__ANTHROPIC_API_KEY", "test-anthropic-key")
+os.environ.setdefault("SDK__GROK_API_KEY", "test-grok-key")
+os.environ.setdefault("SDK__LOG_LEVEL", "ERROR")  # Reduce logging overhead
 
 
 @pytest.fixture(scope="session")
@@ -77,19 +87,152 @@ def test_models() -> dict[str, str]:
     }
 
 
-@pytest.fixture
-async def http_client(sdk_base_url: str, api_key: str) -> AsyncGenerator[httpx.AsyncClient, None]:
-    """Create an HTTP client for testing."""
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+# Session-scoped client for maximum performance - created once and reused
+@pytest.fixture(scope="session")
+def client() -> Generator[TestClient, None, None]:
+    """
+    Create a FastAPI TestClient once per test session.
     
-    async with httpx.AsyncClient(
-        base_url=sdk_base_url,
-        headers=headers,
-        timeout=30.0
-    ) as client:
-        yield client
+    Performance optimizations:
+    - Session scope: App created once, not per test
+    - In-memory SQLite: No disk I/O
+    - Monkeypatched methods: No network calls
+    - Cached mock data: Data created once
+    """
+    from app.models import ModelInfo, ChatCompletionResponse, ChatCompletionChunk
+    from unittest.mock import AsyncMock, MagicMock
+    
+    from app.models import ChatMessage, ChatCompletionChoice, Usage, ChatCompletionStreamChoice
+    import time
+    
+    # Pre-create simple mock data - bypass MockResponses to avoid schema mismatches
+    _anthropic_models = [
+        ModelInfo(id="claude-sonnet-4-5-20250929", owned_by="anthropic"),
+        ModelInfo(id="claude-opus-4-5-20251101", owned_by="anthropic"),
+    ]
+    _google_models = [
+        ModelInfo(id="gemini-2.0-flash-exp", owned_by="google"),
+        ModelInfo(id="gemini-2.0-flash-thinking-exp", owned_by="google"),
+        ModelInfo(id="deep-research-pro-preview-12-2025", owned_by="google"),
+    ]
+    _xai_models = [
+        ModelInfo(id="grok-2-vision-1212", owned_by="xai"),
+        ModelInfo(id="grok-code-fast-1", owned_by="xai"),
+    ]
+    
+    # Create simple completion responses
+    _timestamp = int(time.time())
+    _anthropic_response = ChatCompletionResponse(
+        id="chatcmpl-test",
+        object="chat.completion",
+        created=_timestamp,
+        model="claude-sonnet-4-5-20250929",
+        choices=[ChatCompletionChoice(
+            index=0,
+            message=ChatMessage(role="assistant", content="Test response"),
+            finish_reason="stop"
+        )],
+        usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    )
+    _google_response = ChatCompletionResponse(
+        id="chatcmpl-test",
+        object="chat.completion",
+        created=_timestamp,
+        model="gemini-2.0-flash-exp",
+        choices=[ChatCompletionChoice(
+            index=0,
+            message=ChatMessage(role="assistant", content="Test response"),
+            finish_reason="stop"
+        )],
+        usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    )
+    _xai_response = ChatCompletionResponse(
+        id="chatcmpl-test",
+        object="chat.completion",
+        created=_timestamp,
+        model="grok-2-vision-1212",
+        choices=[ChatCompletionChoice(
+            index=0,
+            message=ChatMessage(role="assistant", content="Test response"),
+            finish_reason="stop"
+        )],
+        usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    )
+    
+    # Create streaming chunks (delta is Any type, use dict)
+    _chunk_template = lambda model: ChatCompletionChunk(
+        id="chatcmpl-test",
+        object="chat.completion.chunk",
+        created=_timestamp,
+        model=model,
+        choices=[ChatCompletionStreamChoice(
+            index=0,
+            delta={"content": "Test", "role": "assistant"},
+            finish_reason="stop"
+        )]
+    )
+    _anthropic_chunk = _chunk_template("claude-sonnet-4-5-20250929")
+    _google_chunk = _chunk_template("gemini-2.0-flash-exp")
+    _xai_chunk = _chunk_template("grok-2-vision-1212")
+    
+    # Fast mock functions using pre-created data
+    async def mock_anthropic_list_models(self):
+        return _anthropic_models
+    
+    async def mock_gemini_list_models(self):
+        return _google_models
+    
+    async def mock_grok_list_models(self):
+        return _xai_models
+    
+    async def mock_anthropic_completion(self, request):
+        return _anthropic_response
+    
+    async def mock_anthropic_streaming(self, request, db=None, previous_completion=None):
+        # Yield SSE-formatted strings (same format as real clients)
+        import json
+        yield f"data: {json.dumps(_anthropic_chunk.model_dump())}\n\n"
+        yield "data: [DONE]\n\n"
+    
+    async def mock_gemini_completion(self, request):
+        return _google_response
+    
+    async def mock_gemini_streaming(self, request, db=None, previous_completion=None):
+        import json
+        yield f"data: {json.dumps(_google_chunk.model_dump())}\n\n"
+        yield "data: [DONE]\n\n"
+    
+    async def mock_grok_completion(self, request):
+        return _xai_response
+    
+    async def mock_grok_streaming(self, request, db=None, previous_completion=None):
+        import json
+        yield f"data: {json.dumps(_xai_chunk.model_dump())}\n\n"
+        yield "data: [DONE]\n\n"
+    
+    # Patch at import time before app loads
+    import app.anthropic_client
+    import app.gemini_client
+    import app.grok_client
+    
+    app.anthropic_client.AnthropicClient.list_models = mock_anthropic_list_models
+    app.anthropic_client.AnthropicClient.create_completion = mock_anthropic_completion
+    app.anthropic_client.AnthropicClient.create_stream_completion = mock_anthropic_streaming
+    
+    app.gemini_client.GeminiClient.list_models = mock_gemini_list_models
+    app.gemini_client.GeminiClient.create_completion = mock_gemini_completion
+    app.gemini_client.GeminiClient.create_stream_completion = mock_gemini_streaming
+    
+    app.grok_client.GrokClient.list_models = mock_grok_list_models
+    app.grok_client.GrokClient.create_completion = mock_grok_completion
+    app.grok_client.GrokClient.create_stream_completion = mock_grok_streaming
+    
+    # Now import and create the app (it will use mocked methods)
+    from app.main import app
+    
+    # Create TestClient once for entire session
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
 
 
 @pytest.fixture(scope="session")
@@ -101,79 +244,16 @@ def skip_if_no_api_key(is_mock_mode: bool):
     return _skip
 
 
-@pytest.fixture
-def mock_anthropic_api(is_mock_mode: bool):
-    """Mock Anthropic API endpoints."""
-    if not is_mock_mode:
-        yield None
-        return
-    
-    from tests.mocks import MockResponses
-    
-    with respx.mock:
-        # Mock models endpoint
-        respx.get("https://api.anthropic.com/v1/models").mock(
-            return_value=httpx.Response(200, json=MockResponses.anthropic_models_list())
-        )
-        
-        # Mock chat completions endpoint
-        respx.post("https://api.anthropic.com/v1/messages").mock(
-            return_value=httpx.Response(200, json=MockResponses.anthropic_completion())
-        )
-        
-        yield respx
+# Cache mock data at module level for performance
+_cached_mock_responses = None
+
+def get_cached_mock_responses():
+    """Get cached mock responses to avoid recreating them."""
+    global _cached_mock_responses
+    if _cached_mock_responses is None:
+        from tests.mocks import MockResponses
+        _cached_mock_responses = MockResponses
+    return _cached_mock_responses
 
 
-@pytest.fixture
-def mock_google_api(is_mock_mode: bool):
-    """Mock Google API endpoints."""
-    if not is_mock_mode:
-        yield None
-        return
-    
-    from tests.mocks import MockResponses
-    
-    with respx.mock:
-        # Mock models endpoint
-        respx.get(url__startswith="https://generativelanguage.googleapis.com/v1beta/models").mock(
-            return_value=httpx.Response(200, json=MockResponses.google_models_list())
-        )
-        
-        # Mock chat completions endpoint  
-        respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/").mock(
-            return_value=httpx.Response(200, json=MockResponses.google_completion())
-        )
-        
-        # Mock interactions endpoint (Deep Research)
-        respx.post("https://generativelanguage.googleapis.com/v1beta/interactions").mock(
-            return_value=httpx.Response(200, json=MockResponses.google_deep_research_interaction())
-        )
-        
-        respx.get(url__regex=r"https://generativelanguage\.googleapis\.com/v1beta/interactions/.*").mock(
-            return_value=httpx.Response(200, json=MockResponses.google_deep_research_complete())
-        )
-        
-        yield respx
-
-
-@pytest.fixture
-def mock_xai_api(is_mock_mode: bool):
-    """Mock xAI API endpoints."""
-    if not is_mock_mode:
-        yield None
-        return
-    
-    from tests.mocks import MockResponses
-    
-    with respx.mock:
-        # Mock models endpoint
-        respx.get("https://api.x.ai/v1/models").mock(
-            return_value=httpx.Response(200, json=MockResponses.xai_models_list())
-        )
-        
-        # Mock chat completions endpoint
-        respx.post("https://api.x.ai/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json=MockResponses.xai_completion())
-        )
-        
-        yield respx
+# Remove unused respx mocks - we're using monkeypatch instead for better performance

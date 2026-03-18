@@ -1,4 +1,4 @@
-.PHONY: help setup clean test test-cov test-real lint format run dev logs up down restart
+.PHONY: help setup clean test test-cov test-real lint format run dev logs up down restart nvim vscode cursor
 
 # ============================================================================
 # Configuration
@@ -166,3 +166,32 @@ shell-sdk: ## Open shell in sdk-interface container
 
 generate-token: ## Generate a new API token for authentication
 	@$(MAKE) -C sdk-interface generate-token
+
+# ============================================================================
+# Editors (with activated environment)
+# ============================================================================
+
+nvim: ## Open nvim with activated Python environment
+	@echo "=== Opening nvim with activated environment ==="
+	@if [ ! -d sdk-interface/.venv ]; then \
+		echo "Error: Virtual environment not found. Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@cd sdk-interface && \
+		bash -c 'source .venv/bin/activate && exec nvim'
+
+vscode: ## Open VS Code with activated Python environment
+	@echo "=== Opening VS Code ==="
+	@if [ ! -d sdk-interface/.venv ]; then \
+		echo "Error: Virtual environment not found. Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@code .
+
+cursor: ## Open Cursor with activated Python environment
+	@echo "=== Opening Cursor ==="
+	@if [ ! -d sdk-interface/.venv ]; then \
+		echo "Error: Virtual environment not found. Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@cursor .

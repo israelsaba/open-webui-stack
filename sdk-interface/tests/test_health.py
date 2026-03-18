@@ -2,23 +2,20 @@
 Tests for health and basic endpoints.
 """
 
-import pytest
-import httpx
+from fastapi.testclient import TestClient
 
 
-@pytest.mark.asyncio
-async def test_health_check(http_client: httpx.AsyncClient):
+def test_health_check(client: TestClient):
     """Test /health endpoint returns healthy status."""
-    response = await http_client.get("/health")
+    response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
 
 
-@pytest.mark.asyncio
-async def test_root_endpoint(http_client: httpx.AsyncClient):
+def test_root_endpoint(client: TestClient):
     """Test root endpoint returns API information."""
-    response = await http_client.get("/")
+    response = client.get("/")
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
