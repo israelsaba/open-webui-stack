@@ -2,8 +2,6 @@
 
 > **Quick Navigation:** [👶 Newbie Guide](#-for-newbies-your-first-ai-research-hub) | [🎯 Expert Setup](#-for-experts-advanced-deployment) | [💰 Cost Analysis](#-cost-analysis) | [☁️ Cloud Deployment](#️-optional-cloud-deployment)
 
-**⚡ Performance:** Test suite runs in <1 second with intelligent caching. Lock files ensure reproducible builds across all environments.
-
 Experience the cutting edge of AI research with **Google's Deep Research** combined with Claude, Gemini, and Grok - all accessible through one beautiful interface. This stack brings together four of the most powerful AI models available today, optimized for comprehensive research, analysis, and creative work.
 
 ## 🌟 Why This Stack?
