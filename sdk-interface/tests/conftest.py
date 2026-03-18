@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import AsyncGenerator
 from dotenv import load_dotenv
 
-# Load test environment variables
-# Priority: .env.test > .env > environment variables
-env_test_path = Path(__file__).parent.parent / ".env.test"
-env_path = Path(__file__).parent.parent / ".env"
+# Load test environment variables from ROOT directory
+# Priority: root/.env.test > root/.env > environment variables
+root_dir = Path(__file__).parent.parent.parent  # Go up to project root
+env_test_path = root_dir / ".env.test"
+env_path = root_dir / ".env"
 
 if env_test_path.exists():
     load_dotenv(env_test_path, override=True)
@@ -24,7 +25,7 @@ elif env_path.exists():
 @pytest.fixture(scope="session")
 def test_mode() -> str:
     """Get test mode: 'mock' or 'real'."""
-    return os.getenv("TEST_MODE", "mock")
+    return os.getenv("SDK__TEST_MODE", "mock")
 
 
 @pytest.fixture(scope="session")
@@ -36,43 +37,43 @@ def is_mock_mode(test_mode: str) -> bool:
 @pytest.fixture(scope="session")
 def sdk_base_url() -> str:
     """Get SDK base URL from environment or use default."""
-    return os.getenv("SDK_BASE_URL", "http://localhost:8060")
+    return os.getenv("SDK__BASE_URL", "http://localhost:8060")
 
 
 @pytest.fixture(scope="session")
 def api_key() -> str:
     """Get API key from environment."""
-    return os.getenv("SDK_API_KEY", "")
+    return os.getenv("SDK__API_KEY", "")
 
 
 @pytest.fixture(scope="session")
 def anthropic_api_key() -> str:
     """Get Anthropic API key from environment."""
-    return os.getenv("ANTHROPIC_API_KEY", "")
+    return os.getenv("SDK__ANTHROPIC_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
 def google_api_key() -> str:
     """Get Google API key from environment."""
-    return os.getenv("GOOGLE_API_KEY", "")
+    return os.getenv("SDK__GOOGLE_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
 def grok_api_key() -> str:
     """Get Grok API key from environment."""
-    return os.getenv("GROK_API_KEY", "")
+    return os.getenv("SDK__GROK_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
 def test_models() -> dict[str, str]:
     """Test models for each provider."""
     return {
-        "anthropic": os.getenv("TEST_MODEL_ANTHROPIC", "claude-sonnet-4-5-20250929"),
-        "gemini": os.getenv("TEST_MODEL_GEMINI", "gemini-2.0-flash-exp"),
+        "anthropic": os.getenv("SDK__TEST_MODEL_ANTHROPIC", "claude-sonnet-4-5-20250929"),
+        "gemini": os.getenv("SDK__TEST_MODEL_GEMINI", "gemini-2.0-flash-exp"),
         "gemini_deep_research": os.getenv(
-            "TEST_MODEL_GEMINI_DEEP_RESEARCH", "deep-research-pro-preview-12-2025"
+            "SDK__TEST_MODEL_GEMINI_DEEP_RESEARCH", "deep-research-pro-preview-12-2025"
         ),
-        "grok": os.getenv("TEST_MODEL_GROK", "grok-code-fast-1"),
+        "grok": os.getenv("SDK__TEST_MODEL_GROK", "grok-code-fast-1"),
     }
 
 

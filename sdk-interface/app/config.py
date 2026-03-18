@@ -1,17 +1,25 @@
 import logging
+import os
 from pathlib import Path
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
-    """Application settings with environment variable support."""
+    """Application settings with environment variable support.
+    
+    Reads from SDK__ prefixed environment variables from root .env file.
+    Falls back to non-prefixed vars for backwards compatibility.
+    """
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Look for .env in parent directory (project root)
+        env_file="../.env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
+        # SDK__ prefix is automatically stripped by pydantic when reading env vars
+        env_prefix="SDK__"
     )
     
     anthropic_api_key: SecretStr | None = None

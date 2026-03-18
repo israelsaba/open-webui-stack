@@ -105,26 +105,14 @@ clean:
 
 test:
 	@if [ -d "tests" ]; then \
-		if [ -f ".env.test" ]; then \
-			echo "Loading .env.test for testing..."; \
-			set -a && . .env.test && set +a && $(ACTIVATE) && python -m pytest tests/ -v; \
-		else \
-			echo "No .env.test found, using environment variables..."; \
-			$(ACTIVATE) && python -m pytest tests/ -v; \
-		fi \
+		$(ACTIVATE) && python -m pytest tests/ -v; \
 	else \
 		echo "No tests directory found. Skipping tests."; \
 	fi
 
 test-cov:
 	@if [ -d "tests" ]; then \
-		if [ -f ".env.test" ]; then \
-			echo "Loading .env.test for testing..."; \
-			set -a && . .env.test && set +a && $(ACTIVATE) && python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml; \
-		else \
-			echo "No .env.test found, using environment variables..."; \
-			$(ACTIVATE) && python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml; \
-		fi \
+		$(ACTIVATE) && python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml; \
 	else \
 		echo "No tests directory found. Skipping tests."; \
 	fi

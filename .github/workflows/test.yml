@@ -41,7 +41,7 @@ jobs:
       
       - name: Run tests with coverage
         env:
-          TEST_MODE: mock
+          SDK__TEST_MODE: mock
         run: |
           # Tests run in mock mode - all provider APIs are mocked
           # This allows full test coverage without real API keys
