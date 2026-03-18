@@ -63,3 +63,14 @@ data/
 .yoyo-lock
 
 *.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Ruff
+.ruff_cache/

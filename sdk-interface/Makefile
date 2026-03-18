@@ -10,48 +10,126 @@ ACTIVATE = . $(VENV_NAME)/bin/activate
 # You can override PYTHON to python and adjust activate below accordingly
 # ============================
 
-.PHONY: setup run generate-token clean nvim repl 
+.PHONY: setup setup-dev setup-test run generate-token clean nvim repl test test-cov test-watch lint format 
 	
 help:
 	@echo "Makefile commands:"
-	@echo "  setup          - use asdf, create venv, and install deps"
-	@echo "  run  	        - starts the server" 
+	@echo "  setup          - create venv and install ALL dependencies (dev + test)"
+	@echo "  setup-dev      - create venv and install dev dependencies"
+	@echo "  setup-test     - create venv and install test dependencies"
+	@echo "  run            - starts the server locally with hot reload" 
+	@echo "  test           - run tests (same as CI/CD)"
+	@echo "  test-cov       - run tests with coverage report"
+	@echo "  test-watch     - run tests in watch mode"
+	@echo "  lint           - run linter (ruff)"
+	@echo "  format         - format code with ruff"
 	@echo "  generate-token - generate a secure API token for authentication"
 	@echo "  clean          - remove virtual environment and *.pyc/__pycache__"
 	@echo "  nvim           - open Neovim in project with venv active"
 	@echo "  repl           - start Python REPL with venv activated"
-	@echo ""
-	@echo "You can override ENV=dev to switch environments."
 
 setup:
-	@command -v asdf >/dev/null 2>&1 || { echo "asdf not found. Install asdf first: https://asdf-vm.com"; exit 1; }
-	@PY_VER=$$(awk '/^python /{print $$2}' .tool-versions); \
-	echo "Using asdf python $$PY_VER"; \
-	asdf plugin-add python >/dev/null 2>&1 || true; \
-	asdf install; \
-	ASDF_PY=$$(asdf which python); \
-	echo "Creating venv with $$ASDF_PY"; \
-	$$ASDF_PY -m venv $(VENV_NAME)
-ifeq ($(ENV),dev)
+	@echo "=== Setting up development environment with ALL dependencies ==="
+	@if command -v asdf >/dev/null 2>&1; then \
+		PY_VER=$$(awk '/^python /{print $$2}' .tool-versions); \
+		echo "Using asdf python $$PY_VER"; \
+		asdf plugin-add python >/dev/null 2>&1 || true; \
+		asdf install; \
+		ASDF_PY=$$(asdf which python); \
+		echo "Creating venv with $$ASDF_PY"; \
+		$$ASDF_PY -m venv $(VENV_NAME); \
+	else \
+		echo "asdf not found, using system python"; \
+		$(PYTHON) -m venv $(VENV_NAME); \
+	fi
+	@echo "Installing all dependencies..."
+	$(ACTIVATE) && pip install --upgrade pip
+	$(ACTIVATE) && pip install -r requirements.txt
+	$(ACTIVATE) && pip install -r requirements-dev.txt
+	$(ACTIVATE) && pip install -r requirements-test.txt
+	@echo "✓ Setup complete! Activate with: source $(VENV_NAME)/bin/activate"
+
+setup-dev:
+	@echo "=== Setting up development environment ==="
+	@if command -v asdf >/dev/null 2>&1; then \
+		PY_VER=$$(awk '/^python /{print $$2}' .tool-versions); \
+		echo "Using asdf python $$PY_VER"; \
+		asdf plugin-add python >/dev/null 2>&1 || true; \
+		asdf install; \
+		ASDF_PY=$$(asdf which python); \
+		echo "Creating venv with $$ASDF_PY"; \
+		$$ASDF_PY -m venv $(VENV_NAME); \
+	else \
+		echo "asdf not found, using system python"; \
+		$(PYTHON) -m venv $(VENV_NAME); \
+	fi
 	$(ACTIVATE) && pip install --upgrade pip && pip install -r requirements-dev.txt
-else
-	$(ACTIVATE) && pip install --upgrade pip && pip install -r requirements.txt
-endif
+	@echo "✓ Development setup complete!"
+
+setup-test:
+	@echo "=== Setting up test environment ==="
+	@if command -v asdf >/dev/null 2>&1; then \
+		PY_VER=$$(awk '/^python /{print $$2}' .tool-versions); \
+		echo "Using asdf python $$PY_VER"; \
+		asdf plugin-add python >/dev/null 2>&1 || true; \
+		asdf install; \
+		ASDF_PY=$$(asdf which python); \
+		echo "Creating venv with $$ASDF_PY"; \
+		$$ASDF_PY -m venv $(VENV_NAME); \
+	else \
+		echo "asdf not found, using system python"; \
+		$(PYTHON) -m venv $(VENV_NAME); \
+	fi
+	$(ACTIVATE) && pip install --upgrade pip && pip install -r requirements-test.txt
+	@echo "✓ Test setup complete!"
 
 run:
 	$(ACTIVATE) && uvicorn app.main:app --host 0.0.0.0 --port 8060 --reload --reload-exclude 'tests/*' --reload-exclude 'scripts/*'
 
 clean:
+	@echo "=== Cleaning up ==="
 	rm -rf $(VENV_NAME)
-	- find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	- find . -type d -name "__pycache__" -delete 2>/dev/null || true
+	rm -rf .pytest_cache
+	rm -rf .coverage
+	rm -rf htmlcov
+	rm -rf coverage.xml
+	rm -rf .ruff_cache
+	rm -rf dist
+	rm -rf build
+	rm -rf *.egg-info
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name '*.pyc' -delete 2>/dev/null || true
+	find . -type f -name '*.pyo' -delete 2>/dev/null || true
+	find . -type f -name '*~' -delete 2>/dev/null || true
+	@echo "✓ Cleanup complete!"
 
 test:
-	@if [ -d "$(TEST_PATH)" ]; then \
-		$(ACTIVATE) && python -m pytest $(TEST_PATH); \
+	@if [ -d "tests" ]; then \
+		$(ACTIVATE) && python -m pytest tests/ -v; \
 	else \
 		echo "No tests directory found. Skipping tests."; \
 	fi
+
+test-cov:
+	@if [ -d "tests" ]; then \
+		$(ACTIVATE) && python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml; \
+	else \
+		echo "No tests directory found. Skipping tests."; \
+	fi
+
+test-watch:
+	@if [ -d "tests" ]; then \
+		$(ACTIVATE) && python -m pytest tests/ -v --watch; \
+	else \
+		echo "No tests directory found. Skipping tests."; \
+	fi
+
+lint:
+	$(ACTIVATE) && ruff check app tests
+
+format:
+	$(ACTIVATE) && ruff format app tests
+	$(ACTIVATE) && ruff check --fix app tests
 
 nvim:
 	$(ACTIVATE) && nvim .

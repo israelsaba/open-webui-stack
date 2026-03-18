@@ -1,0 +1,89 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./sdk-interface
+    
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'sdk-interface/requirements-test.txt'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
+      
+      - name: Lint with ruff
+        run: |
+          ruff check app tests --output-format=github
+        continue-on-error: true
+      
+      - name: Run tests with coverage
+        env:
+          # SDK Interface Configuration
+          SDK_BASE_URL: ${{ vars.SDK_BASE_URL || 'http://localhost:8060' }}
+          SDK_API_KEY: ${{ secrets.SDK_API_KEY }}
+          
+          # Provider API Keys
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          
+          # Test Model Configuration (optional - uses defaults if not set)
+          TEST_MODEL_ANTHROPIC: ${{ vars.TEST_MODEL_ANTHROPIC }}
+          TEST_MODEL_GEMINI: ${{ vars.TEST_MODEL_GEMINI }}
+          TEST_MODEL_GEMINI_DEEP_RESEARCH: ${{ vars.TEST_MODEL_GEMINI_DEEP_RESEARCH }}
+          TEST_MODEL_GROK: ${{ vars.TEST_MODEL_GROK }}
+        run: |
+          pytest tests/ -v \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-report=html \
+            -m "not slow"
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./sdk-interface/coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+      
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: sdk-interface/htmlcov/
+          retention-days: 7
+      
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 70
+          MINIMUM_ORANGE: 50
