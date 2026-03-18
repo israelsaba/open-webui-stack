@@ -1,56 +1,58 @@
 # GitHub Repository Setup for CI/CD
 
-This document explains how to configure GitHub Secrets and Variables for the testing pipeline.
+This document explains how to configure GitHub repository settings for the testing pipeline.
 
-## 📌 Required GitHub Secrets
+## ⚠️ Important: API Keys for Testing
+
+**API keys should NOT be stored in GitHub Secrets for tests.** They should be set as local environment variables when testing locally.
+
+The CI/CD pipeline runs tests **without API keys** and will auto-skip any provider-specific integration tests. This is by design for security and to avoid consuming API quotas in CI.
+
+## 📌 Optional GitHub Secrets
 
 Go to your repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
 
-### 🔑 API Keys (Secrets)
+### 🔑 Only for Coverage Upload
 
 | Secret Name | Description | Required | How to Get |
 |------------|-------------|----------|------------|
-| `ANTHROPIC_API_KEY` | Claude API key | No* | [console.anthropic.com](https://console.anthropic.com/) |
-| `GOOGLE_API_KEY` | Gemini/Deep Research API key | Yes | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
-| `GROK_API_KEY` | xAI Grok API key | No* | [console.x.ai](https://console.x.ai/) |
-| `SDK_API_KEY` | Bearer token for authenticated endpoints | No | Any string (e.g., `op_wui_test123`) |
-| `CODECOV_TOKEN` | Codecov upload token | No** | [codecov.io](https://codecov.io/) after linking repo |
+| `CODECOV_TOKEN` | Codecov upload token | No | [codecov.io](https://codecov.io/) after linking repo |
 
-\* Tests will skip if not provided  
-\** Coverage will still work, just won't upload to Codecov
+**That's it!** No API keys needed for CI/CD.
 
-### Adding a Secret
+### Adding the Codecov Secret (Optional)
 
 1. Click **"New repository secret"**
-2. **Name**: Enter the secret name exactly as shown above (case-sensitive)
-3. **Secret**: Paste the API key value
+2. **Name**: `CODECOV_TOKEN`
+3. **Secret**: Paste the token from Codecov
 4. Click **"Add secret"**
 
-**Example:**
+## 🧪 Local Testing with Real APIs
+
+To run integration tests locally with actual API providers:
+
+### Step 1: Set Environment Variables
+
+```bash
+# In your terminal or add to ~/.bashrc or ~/.zshrc
+export GOOGLE_API_KEY="your-google-api-key-here"
+export ANTHROPIC_API_KEY="your-anthropic-api-key-here"
+export GROK_API_KEY="your-grok-api-key-here"
+
+# Optional: Override test models
+export TEST_MODEL_ANTHROPIC="claude-opus-4-5-20251101"
+export TEST_MODEL_GEMINI="gemini-2.0-flash-exp"
 ```
-Name: GOOGLE_API_KEY
-Secret: AIzaSyABC123...xyz
+
+### Step 2: Run Tests Locally
+
+```bash
+cd sdk-interface
+make setup          # One-time: install dependencies
+make test-cov       # Run tests with coverage
 ```
 
-## 📌 Optional GitHub Variables
-
-Go to your repository → **Settings** → **Secrets and variables** → **Actions** → **Variables** tab → **New repository variable**
-
-### 🔧 Configuration (Variables)
-
-| Variable Name | Description | Default | Example |
-|--------------|-------------|---------|---------|
-| `SDK_BASE_URL` | SDK interface endpoint | `http://localhost:8060` | `http://192.168.2.4:8060` |
-| `TEST_MODEL_ANTHROPIC` | Override default Anthropic test model | `claude-sonnet-4-5-20250929` | `claude-opus-4-5-20251101` |
-| `TEST_MODEL_GEMINI` | Override default Gemini test model | `gemini-2.0-flash-exp` | `gemini-1.5-pro-latest` |
-| `TEST_MODEL_GEMINI_DEEP_RESEARCH` | Override default Deep Research model | `deep-research-pro-preview-12-2025` | Same |
-| `TEST_MODEL_GROK` | Override default Grok test model | `grok-code-fast-1` | `grok-2-vision-1212` |
-
-### When to Use Variables
-
-- **Testing against specific model versions**: Set `TEST_MODEL_*` variables
-- **Testing against deployed instance**: Set `SDK_BASE_URL` to your server
-- **Most cases**: Leave blank to use sensible defaults
+Tests will automatically use environment variables and skip any tests for which API keys aren't available.
 
 ## 🚀 Setting Up Codecov (Optional)
 
@@ -93,22 +95,20 @@ Add this to the top of your README.md:
 3. Click **"Run workflow"** dropdown → **"Run workflow"**
 4. Wait for completion (~2-5 minutes)
 
-### Expected Results
+### Expected Results (CI/CD)
 
-**With all API keys:**
-- ✅ All tests pass
+**In GitHub Actions (no API keys):**
+- ⚠️ Provider-specific integration tests skipped (expected)
+- ✅ Basic tests (health check, etc.) pass
+- ✅ Linting passes
 - ✅ Coverage report generated
-- ✅ Coverage uploaded to Codecov (if token provided)
+- ✅ Coverage uploaded to Codecov (if token configured)
 
-**With only Google API key:**
-- ⚠️ Anthropic and Grok tests skipped
-- ✅ Gemini and Deep Research tests pass
-- ✅ Coverage report generated
-
-**With no API keys:**
-- ⚠️ Provider-specific tests skipped
-- ✅ Basic tests (health, models endpoint) pass
-- ✅ Coverage report generated (but lower %)
+**Locally (with API keys set as env vars):**
+- ✅ All integration tests run
+- ✅ Provider-specific tests pass (if APIs are working)
+- ✅ Full coverage including provider integrations
+- 📊 See actual API responses and behaviors
 
 ## 🔒 Security Best Practices
 
@@ -153,20 +153,22 @@ Add this to the top of your README.md:
 
 ## 🛠️ Troubleshooting
 
-### "API key not configured" errors
+### Provider-specific tests are skipped in CI
 
-**Cause**: Secret not set or named incorrectly  
-**Fix**: Double-check secret names (case-sensitive) in **Settings** → **Secrets and variables** → **Actions**
+**Cause**: This is expected behavior - no API keys in CI  
+**Solution**: This is correct! Tests auto-skip to avoid consuming API quotas. Run locally with API keys for full integration testing.
 
-### Tests timing out
+### Want to test specific providers in CI?
 
-**Cause**: Deep Research tests can take 30-60 seconds  
-**Fix**: Already handled - slow tests are marked and skipped in CI
+**Answer**: Don't! API keys should never be in GitHub for security reasons. Instead:
+1. Test locally with your API keys before pushing
+2. Let CI verify code quality (lint, basic tests)
+3. Trust that if basic tests pass, provider integrations work (they're well-tested locally)
 
 ### Coverage upload fails
 
 **Cause**: Invalid or missing `CODECOV_TOKEN`  
-**Fix**: The workflow continues even if upload fails. Check token in secrets.
+**Fix**: The workflow continues even if upload fails. Check token in secrets or skip Codecov entirely.
 
 ### Workflow not triggering
 
@@ -177,15 +179,26 @@ Add this to the top of your README.md:
 
 Before running CI/CD, ensure:
 
-- [ ] `GOOGLE_API_KEY` secret is set (minimum requirement)
-- [ ] Optional: `ANTHROPIC_API_KEY` secret is set
-- [ ] Optional: `GROK_API_KEY` secret is set
-- [ ] Optional: `CODECOV_TOKEN` secret is set
-- [ ] Workflow file exists at `.github/workflows/test.yml`
-- [ ] Tests directory exists at `sdk-interface/tests/`
-- [ ] You've tested locally with `make test-cov`
+- [ ] Optional: `CODECOV_TOKEN` secret is set (only if you want Codecov integration)
+- [ ] Workflow file exists at `.github/workflows/test.yml` ✅ (already committed)
+- [ ] Tests directory exists at `sdk-interface/tests/` ✅ (already committed)
+- [ ] You've tested locally with `make test-cov` (with your API keys set as env vars)
 
 **Ready!** Push to main or create a PR to trigger the workflow. 🚀
+
+## 🔐 Why No API Keys in CI?
+
+**Security**: API keys in GitHub secrets could be exposed via:
+- Malicious PRs that print environment variables
+- Compromised GitHub accounts
+- Accidental logging
+
+**Cost**: CI/CD runs on every push/PR, consuming API quotas unnecessarily
+
+**Best Practice**: 
+- ✅ Test locally with real APIs before committing
+- ✅ Use CI for code quality checks (linting, basic tests)
+- ✅ Trust that well-tested code works across providers
 
 ---
 

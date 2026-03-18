@@ -40,22 +40,9 @@ jobs:
         continue-on-error: true
       
       - name: Run tests with coverage
-        env:
-          # SDK Interface Configuration
-          SDK_BASE_URL: ${{ vars.SDK_BASE_URL || 'http://localhost:8060' }}
-          SDK_API_KEY: ${{ secrets.SDK_API_KEY }}
-          
-          # Provider API Keys
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          
-          # Test Model Configuration (optional - uses defaults if not set)
-          TEST_MODEL_ANTHROPIC: ${{ vars.TEST_MODEL_ANTHROPIC }}
-          TEST_MODEL_GEMINI: ${{ vars.TEST_MODEL_GEMINI }}
-          TEST_MODEL_GEMINI_DEEP_RESEARCH: ${{ vars.TEST_MODEL_GEMINI_DEEP_RESEARCH }}
-          TEST_MODEL_GROK: ${{ vars.TEST_MODEL_GROK }}
         run: |
+          # Tests run without API keys in CI - they will skip provider-specific tests
+          # For local testing with real APIs, set environment variables locally
           pytest tests/ -v \
             --cov=app \
             --cov-report=term-missing \

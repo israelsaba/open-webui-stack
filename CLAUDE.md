@@ -252,19 +252,18 @@ async def test_example(
 5. Uploads coverage to Codecov
 6. Comments coverage on PRs
 
-**Required GitHub Secrets:**
-- `ANTHROPIC_API_KEY`: For Claude tests
-- `GOOGLE_API_KEY`: For Gemini/Deep Research tests  
-- `GROK_API_KEY`: For Grok tests
-- `SDK_API_KEY`: For authenticated endpoints
-- `CODECOV_TOKEN`: For coverage reporting
+**GitHub Secrets (Optional):**
+- `CODECOV_TOKEN`: For coverage reporting (optional)
 
-**Optional GitHub Variables:**
-- `SDK_BASE_URL`: Default `http://localhost:8060`
-- `TEST_MODEL_ANTHROPIC`: Override default test model
-- `TEST_MODEL_GEMINI`: Override default test model
-- `TEST_MODEL_GEMINI_DEEP_RESEARCH`: Override default test model
-- `TEST_MODEL_GROK`: Override default test model
+**No API keys in GitHub!** API keys should only be set as local environment variables for local testing. CI/CD runs without API keys and auto-skips provider integration tests.
+
+**For local testing with real APIs:**
+```bash
+export GOOGLE_API_KEY="your-key"
+export ANTHROPIC_API_KEY="your-key"
+export GROK_API_KEY="your-key"
+make test-cov
+```
 
 ## 🐛 Debugging Tips
 
