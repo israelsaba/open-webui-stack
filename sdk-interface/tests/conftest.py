@@ -5,7 +5,32 @@ Pytest configuration and fixtures for SDK Interface tests.
 import os
 import pytest
 import httpx
+import respx
+from pathlib import Path
 from typing import AsyncGenerator
+from dotenv import load_dotenv
+
+# Load test environment variables
+# Priority: .env.test > .env > environment variables
+env_test_path = Path(__file__).parent.parent / ".env.test"
+env_path = Path(__file__).parent.parent / ".env"
+
+if env_test_path.exists():
+    load_dotenv(env_test_path, override=True)
+elif env_path.exists():
+    load_dotenv(env_path, override=False)
+
+
+@pytest.fixture(scope="session")
+def test_mode() -> str:
+    """Get test mode: 'mock' or 'real'."""
+    return os.getenv("TEST_MODE", "mock")
+
+
+@pytest.fixture(scope="session")
+def is_mock_mode(test_mode: str) -> bool:
+    """Check if tests should use mocked responses."""
+    return test_mode == "mock"
 
 
 @pytest.fixture(scope="session")
@@ -67,9 +92,87 @@ async def http_client(sdk_base_url: str, api_key: str) -> AsyncGenerator[httpx.A
 
 
 @pytest.fixture(scope="session")
-def skip_if_no_api_key():
-    """Skip test if required API keys are missing."""
+def skip_if_no_api_key(is_mock_mode: bool):
+    """Skip test if required API keys are missing (only in real mode)."""
     def _skip(provider: str, api_key: str):
-        if not api_key:
-            pytest.skip(f"{provider} API key not configured (set {provider.upper()}_API_KEY)")
+        if not is_mock_mode and not api_key:
+            pytest.skip(f"{provider} API key not configured (set {provider.upper()}_API_KEY or TEST_MODE=mock)")
     return _skip
+
+
+@pytest.fixture
+def mock_anthropic_api(is_mock_mode: bool):
+    """Mock Anthropic API endpoints."""
+    if not is_mock_mode:
+        yield None
+        return
+    
+    from tests.mocks import MockResponses
+    
+    with respx.mock:
+        # Mock models endpoint
+        respx.get("https://api.anthropic.com/v1/models").mock(
+            return_value=httpx.Response(200, json=MockResponses.anthropic_models_list())
+        )
+        
+        # Mock chat completions endpoint
+        respx.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(200, json=MockResponses.anthropic_completion())
+        )
+        
+        yield respx
+
+
+@pytest.fixture
+def mock_google_api(is_mock_mode: bool):
+    """Mock Google API endpoints."""
+    if not is_mock_mode:
+        yield None
+        return
+    
+    from tests.mocks import MockResponses
+    
+    with respx.mock:
+        # Mock models endpoint
+        respx.get(url__startswith="https://generativelanguage.googleapis.com/v1beta/models").mock(
+            return_value=httpx.Response(200, json=MockResponses.google_models_list())
+        )
+        
+        # Mock chat completions endpoint  
+        respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/").mock(
+            return_value=httpx.Response(200, json=MockResponses.google_completion())
+        )
+        
+        # Mock interactions endpoint (Deep Research)
+        respx.post("https://generativelanguage.googleapis.com/v1beta/interactions").mock(
+            return_value=httpx.Response(200, json=MockResponses.google_deep_research_interaction())
+        )
+        
+        respx.get(url__regex=r"https://generativelanguage\.googleapis\.com/v1beta/interactions/.*").mock(
+            return_value=httpx.Response(200, json=MockResponses.google_deep_research_complete())
+        )
+        
+        yield respx
+
+
+@pytest.fixture
+def mock_xai_api(is_mock_mode: bool):
+    """Mock xAI API endpoints."""
+    if not is_mock_mode:
+        yield None
+        return
+    
+    from tests.mocks import MockResponses
+    
+    with respx.mock:
+        # Mock models endpoint
+        respx.get("https://api.x.ai/v1/models").mock(
+            return_value=httpx.Response(200, json=MockResponses.xai_models_list())
+        )
+        
+        # Mock chat completions endpoint
+        respx.post("https://api.x.ai/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=MockResponses.xai_completion())
+        )
+        
+        yield respx

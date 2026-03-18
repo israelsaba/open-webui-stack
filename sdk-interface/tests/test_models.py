@@ -7,7 +7,12 @@ import httpx
 
 
 @pytest.mark.asyncio
-async def test_list_models(http_client: httpx.AsyncClient):
+async def test_list_models(
+    http_client: httpx.AsyncClient,
+    mock_anthropic_api,
+    mock_google_api,
+    mock_xai_api
+):
     """Test /v1/models endpoint returns available models."""
     response = await http_client.get("/v1/models")
     assert response.status_code == 200
@@ -28,7 +33,10 @@ async def test_list_models(http_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_models_include_test_models(
     http_client: httpx.AsyncClient,
-    test_models: dict[str, str]
+    test_models: dict[str, str],
+    mock_anthropic_api,
+    mock_google_api,
+    mock_xai_api
 ):
     """Test that our test models are available in the list."""
     response = await http_client.get("/v1/models")

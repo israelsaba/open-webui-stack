@@ -2,11 +2,20 @@
 
 This document explains how to configure GitHub repository settings for the testing pipeline.
 
-## ⚠️ Important: API Keys for Testing
+## 🎭 Mock Testing Approach
 
-**API keys should NOT be stored in GitHub Secrets for tests.** They should be set as local environment variables when testing locally.
+**CI/CD uses mocked API responses** - no real API keys needed!
 
-The CI/CD pipeline runs tests **without API keys** and will auto-skip any provider-specific integration tests. This is by design for security and to avoid consuming API quotas in CI.
+The testing infrastructure supports two modes:
+
+- **Mock Mode** (`TEST_MODE=mock`): Uses respx to mock all external API calls - perfect for CI/CD
+- **Real Mode** (`TEST_MODE=real`): Uses actual provider APIs - for local integration testing
+
+This approach provides:
+- ✅ **Security**: No API keys in GitHub
+- ✅ **Speed**: Fast tests without network calls
+- ✅ **Reliability**: Tests don't fail due to API rate limits or outages
+- ✅ **Cost**: Zero API quota consumption in CI
 
 ## 📌 Optional GitHub Secrets
 
@@ -27,32 +36,52 @@ Go to your repository → **Settings** → **Secrets and variables** → **Actio
 3. **Secret**: Paste the token from Codecov
 4. Click **"Add secret"**
 
-## 🧪 Local Testing with Real APIs
+## 🧪 Local Testing Options
 
-To run integration tests locally with actual API providers:
+### Option 1: Mock Mode (Default - Recommended)
 
-### Step 1: Set Environment Variables
-
-```bash
-# In your terminal or add to ~/.bashrc or ~/.zshrc
-export GOOGLE_API_KEY="your-google-api-key-here"
-export ANTHROPIC_API_KEY="your-anthropic-api-key-here"
-export GROK_API_KEY="your-grok-api-key-here"
-
-# Optional: Override test models
-export TEST_MODEL_ANTHROPIC="claude-opus-4-5-20251101"
-export TEST_MODEL_GEMINI="gemini-2.0-flash-exp"
-```
-
-### Step 2: Run Tests Locally
+Test with mocked responses (fast, no API keys needed):
 
 ```bash
 cd sdk-interface
-make setup          # One-time: install dependencies
-make test-cov       # Run tests with coverage
+cp .env.test.example .env.test
+# Edit .env.test and set TEST_MODE=mock (or leave as default)
+make test-cov
 ```
 
-Tests will automatically use environment variables and skip any tests for which API keys aren't available.
+### Option 2: Real API Mode
+
+Test against actual provider APIs:
+
+```bash
+cd sdk-interface
+cp .env.test.example .env.test
+```
+
+Edit `.env.test`:
+```bash
+TEST_MODE=real
+GOOGLE_API_KEY=your-google-api-key-here
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+GROK_API_KEY=your-grok-api-key-here
+```
+
+Then run:
+```bash
+make test-cov
+```
+
+### Option 3: Environment Variables Only
+
+Skip `.env.test` and use shell environment variables:
+
+```bash
+export TEST_MODE=real
+export GOOGLE_API_KEY="your-key"
+export ANTHROPIC_API_KEY="your-key"
+export GROK_API_KEY="your-key"
+make test-cov
+```
 
 ## 🚀 Setting Up Codecov (Optional)
 
@@ -95,20 +124,28 @@ Add this to the top of your README.md:
 3. Click **"Run workflow"** dropdown → **"Run workflow"**
 4. Wait for completion (~2-5 minutes)
 
-### Expected Results (CI/CD)
+### Expected Results
 
-**In GitHub Actions (no API keys):**
-- ⚠️ Provider-specific integration tests skipped (expected)
-- ✅ Basic tests (health check, etc.) pass
+**In GitHub Actions (Mock Mode):**
+- ✅ All tests run (including provider integration tests)
+- ✅ All tests pass (using mocked responses)
 - ✅ Linting passes
-- ✅ Coverage report generated
+- ✅ Full coverage report generated
 - ✅ Coverage uploaded to Codecov (if token configured)
+- ⚡ Fast execution (~1-2 minutes)
 
-**Locally (with API keys set as env vars):**
-- ✅ All integration tests run
+**Locally in Mock Mode (TEST_MODE=mock):**
+- ✅ All tests run with mocked responses
+- ✅ Fast execution
+- ✅ No API keys needed
+- ✅ Perfect for quick validation
+
+**Locally in Real Mode (TEST_MODE=real):**
+- ✅ All integration tests run against real APIs
 - ✅ Provider-specific tests pass (if APIs are working)
-- ✅ Full coverage including provider integrations
+- ✅ Full coverage including actual provider integrations
 - 📊 See actual API responses and behaviors
+- ⏱️ Slower execution due to network calls
 
 ## 🔒 Security Best Practices
 
@@ -153,17 +190,18 @@ Add this to the top of your README.md:
 
 ## 🛠️ Troubleshooting
 
-### Provider-specific tests are skipped in CI
+### Tests pass in CI but fail locally
 
-**Cause**: This is expected behavior - no API keys in CI  
-**Solution**: This is correct! Tests auto-skip to avoid consuming API quotas. Run locally with API keys for full integration testing.
+**Cause**: CI uses mock mode, local might be using real mode with invalid/expired API keys  
+**Solution**: Set `TEST_MODE=mock` in your `.env.test` for consistent behavior
 
-### Want to test specific providers in CI?
+### Want to verify real API integration?
 
-**Answer**: Don't! API keys should never be in GitHub for security reasons. Instead:
-1. Test locally with your API keys before pushing
-2. Let CI verify code quality (lint, basic tests)
-3. Trust that if basic tests pass, provider integrations work (they're well-tested locally)
+**Answer**: Yes! Use real mode locally:
+1. Set `TEST_MODE=real` in `.env.test`
+2. Add your API keys
+3. Run `make test-cov`
+4. Commit confident that both mocked and real tests pass
 
 ### Coverage upload fails
 
@@ -186,19 +224,34 @@ Before running CI/CD, ensure:
 
 **Ready!** Push to main or create a PR to trigger the workflow. 🚀
 
-## 🔐 Why No API Keys in CI?
+## 🎭 Why Mock Testing?
 
-**Security**: API keys in GitHub secrets could be exposed via:
-- Malicious PRs that print environment variables
-- Compromised GitHub accounts
-- Accidental logging
+**Security**: No API keys in GitHub = No exposure risk
+- Malicious PRs can't steal keys
+- No accidental logging of secrets
+- Reduced attack surface
 
-**Cost**: CI/CD runs on every push/PR, consuming API quotas unnecessarily
+**Speed**: Mocked responses are instant
+- No network latency
+- No rate limiting
+- Predictable test duration
 
-**Best Practice**: 
-- ✅ Test locally with real APIs before committing
-- ✅ Use CI for code quality checks (linting, basic tests)
-- ✅ Trust that well-tested code works across providers
+**Cost**: Zero API consumption
+- Free test runs
+- Save quotas for development
+- No surprise bills
+
+**Reliability**: Tests never fail due to:
+- API outages
+- Rate limits
+- Network issues
+- Provider changes
+
+**Best Practice**:
+- ✅ CI uses mocks for speed and security
+- ✅ Local real-mode testing before major releases
+- ✅ Mocks based on actual API responses
+- ✅ Update mocks when provider APIs change
 
 ---
 

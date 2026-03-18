@@ -17,6 +17,7 @@ class TestNonStreamingCompletions:
         test_models: dict[str, str],
         anthropic_api_key: str,
         skip_if_no_api_key,
+        mock_anthropic_api,
     ):
         """Test Anthropic (Claude) non-streaming completion."""
         skip_if_no_api_key("anthropic", anthropic_api_key)
@@ -51,6 +52,7 @@ class TestNonStreamingCompletions:
         test_models: dict[str, str],
         google_api_key: str,
         skip_if_no_api_key,
+        mock_google_api,
     ):
         """Test Gemini non-streaming completion."""
         skip_if_no_api_key("google", google_api_key)
@@ -84,6 +86,7 @@ class TestNonStreamingCompletions:
         test_models: dict[str, str],
         grok_api_key: str,
         skip_if_no_api_key,
+        mock_xai_api,
     ):
         """Test Grok non-streaming completion."""
         skip_if_no_api_key("grok", grok_api_key)
@@ -121,6 +124,7 @@ class TestStreamingCompletions:
         test_models: dict[str, str],
         anthropic_api_key: str,
         skip_if_no_api_key,
+        mock_anthropic_api,
     ):
         """Test Anthropic (Claude) streaming completion."""
         skip_if_no_api_key("anthropic", anthropic_api_key)
@@ -159,6 +163,7 @@ class TestStreamingCompletions:
         test_models: dict[str, str],
         google_api_key: str,
         skip_if_no_api_key,
+        mock_google_api,
     ):
         """Test Gemini streaming completion."""
         skip_if_no_api_key("google", google_api_key)
@@ -197,6 +202,7 @@ class TestStreamingCompletions:
         test_models: dict[str, str],
         grok_api_key: str,
         skip_if_no_api_key,
+        mock_xai_api,
     ):
         """Test Grok streaming completion."""
         skip_if_no_api_key("grok", grok_api_key)
@@ -240,6 +246,7 @@ class TestDeepResearch:
         test_models: dict[str, str],
         google_api_key: str,
         skip_if_no_api_key,
+        mock_google_api,
     ):
         """Test deep research with streaming."""
         skip_if_no_api_key("google", google_api_key)

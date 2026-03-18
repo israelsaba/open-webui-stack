@@ -40,9 +40,11 @@ jobs:
         continue-on-error: true
       
       - name: Run tests with coverage
+        env:
+          TEST_MODE: mock
         run: |
-          # Tests run without API keys in CI - they will skip provider-specific tests
-          # For local testing with real APIs, set environment variables locally
+          # Tests run in mock mode - all provider APIs are mocked
+          # This allows full test coverage without real API keys
           pytest tests/ -v \
             --cov=app \
             --cov-report=term-missing \
