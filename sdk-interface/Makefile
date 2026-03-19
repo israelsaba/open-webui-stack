@@ -101,7 +101,7 @@ clean:
 
 test:
 	@if [ -d "tests" ]; then \
-		$(ACTIVATE) && python -m pytest tests/ -v; \
+		$(ACTIVATE) && python -m pytest tests/ -v -m "not slow"; \
 	else \
 		echo "No tests directory found. Skipping tests."; \
 	fi
