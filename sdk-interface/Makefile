@@ -1,6 +1,8 @@
 SHELL := bash
 VENV_NAME = .venv
-PYTHON ?= python3
+# Find system Python, bypassing version managers (asdf, pyenv, etc.)
+# Checks /usr/bin first (system Python), then falls back to PATH
+PYTHON ?= $(shell test -x /usr/bin/python3.12 && echo /usr/bin/python3.12 || test -x /usr/bin/python3 && echo /usr/bin/python3 || command -v python3 2>/dev/null || echo python3)
 ACTIVATE = . $(VENV_NAME)/bin/activate
 
 .PHONY: setup run generate-token clean nvim repl test lint lock
@@ -19,7 +21,21 @@ help:
 
 setup:
 	@echo "=== Setting up development environment ==="
-	@echo "Using Python: $$($(PYTHON) --version)"
+	@if command -v asdf >/dev/null 2>&1 && ! test -x "$(PYTHON)"; then \
+		echo "⚠️  asdf detected but no Python version set"; \
+		echo ""; \
+		echo "Option 1 - Use system Python (recommended):"; \
+		echo "  export PATH=/usr/bin:\$$PATH"; \
+		echo "  make setup"; \
+		echo ""; \
+		echo "Option 2 - Install Python 3.12 system-wide:"; \
+		echo "  sudo apt install python3.12 python3.12-venv libsqlite3-dev"; \
+		echo "  make setup PYTHON=/usr/bin/python3.12"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@echo "Using Python: $(PYTHON)"
+	@$(PYTHON) --version || (echo "Error: Python not found at $(PYTHON)" && exit 1)
 	@$(PYTHON) -m venv $(VENV_NAME)
 	@echo "Installing all dependencies from lock files..."
 	$(ACTIVATE) && pip install --upgrade pip pip-tools
