@@ -78,7 +78,7 @@ test: ## Run tests in mock mode (default, fast)
 	@if [ -f .env.test ]; then \
 		set -a && . .env.test && set +a && $(MAKE) -C sdk-interface test; \
 	else \
-		SDK__TEST_MODE=mock $(MAKE) -C sdk-interface test; \
+		SDK__TEST_MODE=mock SDK__API_KEYS="" $(MAKE) -C sdk-interface test; \
 	fi
 
 test-cov: ## Run tests with coverage report
