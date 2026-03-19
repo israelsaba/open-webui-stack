@@ -3,8 +3,11 @@ VENV_NAME = .venv
 # Auto-detect Python: prefer asdf if configured, fallback to system Python
 PYTHON ?= $(shell \
 	if command -v asdf >/dev/null 2>&1; then \
-		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null || echo ""); \
-		if [ -n "$$ASDF_PYTHON" ] && [ "$$ASDF_PYTHON" != "" ]; then \
+		ASDF_PYTHON=$$(asdf which python 2>&1 | grep -v "^unexpected error" | grep -v "^No version" || echo ""); \
+		if [ -z "$$ASDF_PYTHON" ]; then \
+			ASDF_PYTHON=$$(asdf which python3 2>&1 | grep -v "^unexpected error" | grep -v "^No version" || echo ""); \
+		fi; \
+		if [ -n "$$ASDF_PYTHON" ] && [ -x "$$ASDF_PYTHON" ]; then \
 			echo "$$ASDF_PYTHON"; \
 		else \
 			command -v python3.12 2>/dev/null || command -v python3 2>/dev/null || echo python3; \
