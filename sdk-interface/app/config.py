@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     migrations_path: Path = Path("migrations")
     db_path: Path = Path("data/db.sqlite3")
     
+    # CORS settings
+    cors_origins: str = "*"  # Comma-separated list of allowed origins, or "*" for all
+    
     interaction_poll_interval: int = 30
     
     @field_validator("port", mode="before")
