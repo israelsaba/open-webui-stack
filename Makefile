@@ -178,7 +178,7 @@ nvim: ## Open nvim with activated Python environment
 		exit 1; \
 	fi
 	@cd sdk-interface && \
-		bash -c 'source .venv/bin/activate && exec nvim'
+		bash -c 'source .venv/bin/activate && exec nvim .'
 
 vscode: ## Open VS Code with activated Python environment
 	@echo "=== Opening VS Code ==="
