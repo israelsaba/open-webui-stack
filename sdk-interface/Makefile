@@ -3,8 +3,8 @@ VENV_NAME = .venv
 # Auto-detect Python: prefer asdf if configured, fallback to system Python
 PYTHON ?= $(shell \
 	if command -v asdf >/dev/null 2>&1; then \
-		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null); \
-		if [ -n "$$ASDF_PYTHON" ]; then \
+		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null || echo ""); \
+		if [ -n "$$ASDF_PYTHON" ] && [ "$$ASDF_PYTHON" != "" ]; then \
 			echo "$$ASDF_PYTHON"; \
 		else \
 			command -v python3.12 2>/dev/null || command -v python3 2>/dev/null || echo python3; \
@@ -31,8 +31,8 @@ help:
 setup:
 	@echo "=== Setting up development environment ==="
 	@if command -v asdf >/dev/null 2>&1; then \
-		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null); \
-		if [ -z "$$ASDF_PYTHON" ]; then \
+		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null || echo ""); \
+		if [ -z "$$ASDF_PYTHON" ] || [ "$$ASDF_PYTHON" = "" ]; then \
 			echo "⚠️  asdf detected but no Python version set"; \
 			echo ""; \
 			echo "Option 1 - Set Python version with asdf:"; \
@@ -50,7 +50,13 @@ setup:
 	else \
 		echo "Using system Python: $(PYTHON)"; \
 	fi
-	@$(PYTHON) --version || (echo "Error: Python not found at $(PYTHON)" && exit 1)
+	@if ! $(PYTHON) --version >/dev/null 2>&1; then \
+		echo "Error: Python not found at $(PYTHON)"; \
+		echo ""; \
+		echo "Install Python 3.12:"; \
+		echo "  sudo apt install python3.12 python3.12-venv libsqlite3-dev"; \
+		exit 1; \
+	fi
 	@$(PYTHON) -m venv $(VENV_NAME)
 	@echo "Installing all dependencies from lock files..."
 	$(ACTIVATE) && pip install --upgrade pip pip-tools
