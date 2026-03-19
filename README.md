@@ -221,6 +221,9 @@ Open Terminal (`Ctrl + Alt + T` on Ubuntu) and run:
 # Update system
 sudo apt update && sudo apt upgrade -y
 
+# Install required dependencies (including SQLite for Python)
+sudo apt install -y build-essential libsqlite3-dev git curl
+
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
@@ -241,6 +244,8 @@ After reboot, verify Docker is installed:
 docker --version
 docker compose version
 ```
+
+**⚠️ Important Note About Python:** If you're planning to run tests locally (not required for Docker deployment), make sure Python has SQLite support. The `libsqlite3-dev` package we installed above ensures this.
 
 **For macOS:**
 
@@ -872,6 +877,35 @@ docker compose restart
 - Increase Docker memory limits in Docker Desktop settings
 - Or allocate more RAM to your VM/instance
 - Minimum 4GB recommended, 8GB ideal
+
+**"ModuleNotFoundError: No module named '_sqlite3'" when running tests:**
+
+This happens when Python was compiled without SQLite support. Fix it:
+
+```bash
+# On Ubuntu/Debian
+sudo apt install libsqlite3-dev
+
+# Rebuild Python (if using asdf)
+asdf uninstall python 3.13.5
+asdf install python 3.13.5
+
+# OR switch to Python 3.12 (matches CI/CD environment)
+cd sdk-interface
+echo "python 3.12.13" > .tool-versions
+asdf install python 3.12.13
+
+# Recreate virtual environment
+rm -rf .venv
+make setup
+```
+
+**Important:** Your database at `sdk-interface/data/db.sqlite3` is NOT affected by rebuilding Python or recreating the virtual environment. Only Python packages in `.venv/` are reinstalled.
+
+**Backup first (optional but recommended):**
+```bash
+cp sdk-interface/data/db.sqlite3 ~/db.sqlite3.backup
+```
 
 ### Get Help
 
