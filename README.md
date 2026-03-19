@@ -268,9 +268,6 @@ Open Terminal (or PowerShell on Windows) and run:
 git clone https://github.com/israelsaba/open-webui-stack.git
 cd open-webui-stack
 
-# If you have asdf/pyenv/version managers, bypass them:
-export PATH=/usr/bin:$PATH
-
 # Set up using Make (recommended)
 make setup
 
@@ -282,11 +279,7 @@ code .env
 # or: notepad .env
 ```
 
-**⚠️ Note for asdf/pyenv users:** This project uses system Python. If you see "No version is set" errors, run:
-```bash
-export PATH=/usr/bin:$PATH
-make setup
-```
+**💡 For asdf users:** The project includes `.tool-versions` (Python 3.12.13). If you don't have asdf, it will use system Python automatically.
 
 **If you haven't gotten your API keys yet, go back to [Step 0: Get Your API Keys](#-step-0-get-your-api-keys-do-this-first)!**
 

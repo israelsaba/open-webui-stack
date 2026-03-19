@@ -1,8 +1,17 @@
 SHELL := bash
 VENV_NAME = .venv
-# Find system Python, bypassing version managers (asdf, pyenv, etc.)
-# Checks /usr/bin first (system Python), then falls back to PATH
-PYTHON ?= $(shell test -x /usr/bin/python3.12 && echo /usr/bin/python3.12 || test -x /usr/bin/python3 && echo /usr/bin/python3 || command -v python3 2>/dev/null || echo python3)
+# Auto-detect Python: prefer asdf if configured, fallback to system Python
+PYTHON ?= $(shell \
+	if command -v asdf >/dev/null 2>&1; then \
+		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null); \
+		if [ -n "$$ASDF_PYTHON" ]; then \
+			echo "$$ASDF_PYTHON"; \
+		else \
+			command -v python3.12 2>/dev/null || command -v python3 2>/dev/null || echo python3; \
+		fi; \
+	else \
+		command -v python3.12 2>/dev/null || command -v python3 2>/dev/null || echo python3; \
+	fi)
 ACTIVATE = . $(VENV_NAME)/bin/activate
 
 .PHONY: setup run generate-token clean nvim repl test lint lock
@@ -21,20 +30,26 @@ help:
 
 setup:
 	@echo "=== Setting up development environment ==="
-	@if command -v asdf >/dev/null 2>&1 && ! test -x "$(PYTHON)"; then \
-		echo "⚠️  asdf detected but no Python version set"; \
-		echo ""; \
-		echo "Option 1 - Use system Python (recommended):"; \
-		echo "  export PATH=/usr/bin:\$$PATH"; \
-		echo "  make setup"; \
-		echo ""; \
-		echo "Option 2 - Install Python 3.12 system-wide:"; \
-		echo "  sudo apt install python3.12 python3.12-venv libsqlite3-dev"; \
-		echo "  make setup PYTHON=/usr/bin/python3.12"; \
-		echo ""; \
-		exit 1; \
+	@if command -v asdf >/dev/null 2>&1; then \
+		ASDF_PYTHON=$$(asdf which python 2>/dev/null || asdf which python3 2>/dev/null); \
+		if [ -z "$$ASDF_PYTHON" ]; then \
+			echo "⚠️  asdf detected but no Python version set"; \
+			echo ""; \
+			echo "Option 1 - Set Python version with asdf:"; \
+			echo "  asdf install python 3.12.13"; \
+			echo "  asdf local python 3.12.13"; \
+			echo "  make setup"; \
+			echo ""; \
+			echo "Option 2 - Use system Python:"; \
+			echo "  make setup PYTHON=/usr/bin/python3"; \
+			echo ""; \
+			exit 1; \
+		else \
+			echo "Using asdf Python: $$ASDF_PYTHON"; \
+		fi; \
+	else \
+		echo "Using system Python: $(PYTHON)"; \
 	fi
-	@echo "Using Python: $(PYTHON)"
 	@$(PYTHON) --version || (echo "Error: Python not found at $(PYTHON)" && exit 1)
 	@$(PYTHON) -m venv $(VENV_NAME)
 	@echo "Installing all dependencies from lock files..."
