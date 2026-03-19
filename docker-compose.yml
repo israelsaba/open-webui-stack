@@ -20,7 +20,7 @@ services:
       - ./sdk-interface:/app
       - ./sdk-interface/data:/data
     env_file:
-      - path: ./sdk-interface/.env
+      - path: .env
         required: true
     ports:
       - ${SDK_PORTS}
