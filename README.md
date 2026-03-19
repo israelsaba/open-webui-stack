@@ -883,21 +883,28 @@ docker compose restart
 This happens when Python was compiled without SQLite support. Fix it:
 
 ```bash
-# On Ubuntu/Debian
+# On Ubuntu/Debian - Install SQLite development headers
 sudo apt install libsqlite3-dev
 
-# Rebuild Python (if using asdf)
-asdf uninstall python 3.13.5
-asdf install python 3.13.5
+# Option 1: Reinstall Python with SQLite support
+# Ubuntu/Debian - use deadsnakes PPA for Python 3.12
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.12 python3.12-venv python3.12-dev
 
-# OR switch to Python 3.12 (matches CI/CD environment)
-cd sdk-interface
-echo "python 3.12.13" > .tool-versions
-asdf install python 3.12.13
+# Option 2: Build Python from source with SQLite
+# Download and build Python 3.12 (example)
+wget https://www.python.org/ftp/python/3.12.13/Python-3.12.13.tgz
+tar -xf Python-3.12.13.tgz
+cd Python-3.12.13
+./configure --enable-optimizations
+make -j $(nproc)
+sudo make altinstall
 
-# Recreate virtual environment
+# After Python is reinstalled, recreate virtual environment
+cd ~/open-webui-stack/sdk-interface
 rm -rf .venv
-make setup
+make setup  # Uses python3 by default, or set: make setup PYTHON=python3.12
 ```
 
 **Important:** Your database at `sdk-interface/data/db.sqlite3` is NOT affected by rebuilding Python or recreating the virtual environment. Only Python packages in `.venv/` are reinstalled.
@@ -906,6 +913,8 @@ make setup
 ```bash
 cp sdk-interface/data/db.sqlite3 ~/db.sqlite3.backup
 ```
+
+**Quick fix for testing:** If you only need to run the stack (not tests), just use Docker - no Python setup needed!
 
 ### Get Help
 

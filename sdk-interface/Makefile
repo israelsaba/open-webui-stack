@@ -1,14 +1,7 @@
 SHELL := bash
-ENV = dev
 VENV_NAME = .venv
-# Default to asdf-managed shim `python`. Override with `make PYTHON=python3.13` if needed.
-PYTHON ?= python
+PYTHON ?= python3
 ACTIVATE = . $(VENV_NAME)/bin/activate
-
-# ============================
-# Windows users
-# You can override PYTHON to python and adjust activate below accordingly
-# ============================
 
 .PHONY: setup run generate-token clean nvim repl test lint lock
 	
@@ -25,19 +18,9 @@ help:
 	@echo "  repl           - start Python REPL with venv activated"
 
 setup:
-	@echo "=== Setting up development environment with ALL dependencies ==="
-	@if command -v asdf >/dev/null 2>&1; then \
-		PY_VER=$$(awk '/^python /{print $$2}' .tool-versions); \
-		echo "Using asdf python $$PY_VER"; \
-		asdf plugin-add python >/dev/null 2>&1 || true; \
-		asdf install; \
-		ASDF_PY=$$(asdf which python); \
-		echo "Creating venv with $$ASDF_PY"; \
-		$$ASDF_PY -m venv $(VENV_NAME); \
-	else \
-		echo "asdf not found, using system python"; \
-		$(PYTHON) -m venv $(VENV_NAME); \
-	fi
+	@echo "=== Setting up development environment ==="
+	@echo "Using Python: $$($(PYTHON) --version)"
+	@$(PYTHON) -m venv $(VENV_NAME)
 	@echo "Installing all dependencies from lock files..."
 	$(ACTIVATE) && pip install --upgrade pip pip-tools
 	$(ACTIVATE) && pip install -r requirements.lock
