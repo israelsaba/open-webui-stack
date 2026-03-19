@@ -6,7 +6,6 @@ from typing import override
 
 from openai import AsyncOpenAI
 
-from app.anthropic_client import InterfaceMessage
 from app.config import settings
 from app.connection_client import ConnectionClient
 from app.models import (
@@ -16,6 +15,7 @@ from app.models import (
     ChatCompletionResponse,
     ChatCompletionStreamChoice,
     ChatMessage,
+    Message as InterfaceMessage,
     ModelInfo,
     PreviousCompletion,
     Usage,
@@ -186,7 +186,7 @@ class GrokClient(ConnectionClient):
 
             # Generate completion ID for meta-reasoning
             completion_id_meta = f"chatcmpl-{int(time.time() * 1000)}"
-            created_meta = int(time.time())
+            int(time.time())
             
             # Send meta-reasoning: Initiating connection
             yield f"data: {self.reasoning_content(

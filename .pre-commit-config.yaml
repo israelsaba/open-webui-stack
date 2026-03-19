@@ -3,3 +3,20 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
+  
+  # Regenerate pip lock files when requirements change
+  - repo: local
+    hooks:
+      - id: pip-compile
+        name: pip-compile requirements.txt
+        entry: bash -c 'cd sdk-interface && pip-compile requirements.txt -o requirements.lock --strip-extras'
+        language: system
+        files: ^sdk-interface/requirements\.txt$
+        pass_filenames: false
+      
+      - id: pip-compile-test
+        name: pip-compile requirements-test.txt
+        entry: bash -c 'cd sdk-interface && pip-compile requirements-test.txt -o requirements-test.lock --strip-extras'
+        language: system
+        files: ^sdk-interface/requirements-test\.txt$
+        pass_filenames: false

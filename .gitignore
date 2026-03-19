@@ -36,6 +36,7 @@ ENV/
 .env.stg
 .env.stag
 .env.staging
+.env.test
 
 # IDE
 .vscode/
@@ -58,8 +59,23 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+:memory:
 
 # Yoyo lock files
 .yoyo-lock
 
 *.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Ruff
+.ruff_cache/
+
+# pip-tools
+.pip-tools-cache/

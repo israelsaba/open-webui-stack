@@ -8,6 +8,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.anthropic_client import AnthropicClient
 from app.gemini_client import GeminiClient
@@ -53,9 +54,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     db_path = Path(settings.db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    # Use absolute path for database
+    db_absolute = db_path.resolve()
     subprocess.check_call([
         "python", "-m", "yoyo", "apply",
-        "--database", f"sqlite:////{db_path}",
+        "--batch",  # Auto-apply without prompting (essential for tests and production)
+        "--database", f"sqlite:///{db_absolute}",
         str(settings.migrations_path)
     ])
     yield
@@ -68,6 +72,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Configure CORS
+cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+if cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.info(f"CORS enabled for origins: {cors_origins}")
+else:
+    logger.warning("No CORS origins configured")
+
+# Configure authentication
 valid_tokens = parse_api_keys(settings.api_keys)
 if valid_tokens:
     app.add_middleware(BearerTokenMiddleware, valid_tokens=valid_tokens)

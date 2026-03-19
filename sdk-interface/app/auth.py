@@ -1,10 +1,9 @@
 import logging
-from typing import Dict, Optional
+from typing import Dict
 from fastapi import HTTPException, Request, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
