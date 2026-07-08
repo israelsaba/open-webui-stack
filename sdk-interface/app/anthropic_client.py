@@ -150,18 +150,15 @@ class AnthropicClient(ConnectionClient):
         """
         m = model.lower().replace(".", "-")
 
-        # Sonnet: never adaptive — preserve today's behavior.
         if "sonnet" in m:
             return False
 
-        # Opus: legacy through 4.6, adaptive for everything newer.
         match = re.search(r"opus-(\d+)(?:-(\d+))?", m)
         if match:
             major = int(match.group(1))
             minor = int(match.group(2)) if match.group(2) else 0
             return (major, minor) > (4, 6)
 
-        # Unmapped future thinking-capable family: follow the new rule.
         return True
 
     @staticmethod
@@ -180,16 +177,11 @@ class AnthropicClient(ConnectionClient):
         effort = (request.reasoning_effort or "medium").lower()
 
         if AnthropicClient._uses_adaptive_thinking(request.model):
-            # New API: adaptive thinking + effort-based control.
-            # ``output_config`` is not yet a typed kwarg in the installed
-            # anthropic SDK (0.76.x), so pass it via ``extra_body`` to reach
-            # the JSON payload without tripping client-side validation.
             kwargs["thinking"] = {"type": "adaptive"}
             extra_body = kwargs.setdefault("extra_body", {})
             extra_body["output_config"] = {"effort": effort}
             return effort_to_budget.get(effort, 5000)
 
-        # Legacy API: explicit budget_tokens.
         thinking_budget = effort_to_budget.get(effort, 5000)
         thinking_budget = max(thinking_budget, 1024)
         if request.max_tokens and request.max_tokens >= 1024:
