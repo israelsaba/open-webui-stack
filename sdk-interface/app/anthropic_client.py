@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import sqlite3
 from datetime import datetime
@@ -117,6 +118,62 @@ class AnthropicClient(ConnectionClient):
         return False
     
     @staticmethod
+    def _uses_adaptive_thinking(model: str) -> bool:
+        """
+        Whether a model requires the new adaptive thinking API.
+
+        Anthropic dropped the legacy ``thinking.type=enabled`` +
+        ``budget_tokens`` control on the newest Claude models (Opus 4.7 and
+        up). Those models 400 with ``"thinking.type.enabled" is not
+        supported`` and instead expect ``thinking.type=adaptive`` plus
+        ``output_config.effort``. Older Claude 4 models still accept the
+        legacy form, so we only switch for the affected generation.
+        """
+        m = model.lower().replace(".", "-")
+        match = re.search(r"claude-opus-4-(\d+)", m)
+        if match:
+            return int(match.group(1)) >= 7
+        return False
+
+    @staticmethod
+    def _apply_thinking_kwargs(
+        request: "ChatCompletionRequest",
+        kwargs: dict[str, Any],
+        effort_to_budget: dict[str, int],
+    ) -> int:
+        """
+        Populate ``kwargs`` with the correct thinking controls for the model.
+
+        Returns the resolved thinking budget (0 when not applicable), used only
+        for human-facing status strings. For adaptive-thinking models the
+        budget is informational; Anthropic sizes thinking from ``effort``.
+        """
+        effort = (request.reasoning_effort or "medium").lower()
+
+        if AnthropicClient._uses_adaptive_thinking(request.model):
+            # New API: adaptive thinking + effort-based control.
+            # ``output_config`` is not yet a typed kwarg in the installed
+            # anthropic SDK (0.76.x), so pass it via ``extra_body`` to reach
+            # the JSON payload without tripping client-side validation.
+            kwargs["thinking"] = {"type": "adaptive"}
+            extra_body = kwargs.setdefault("extra_body", {})
+            extra_body["output_config"] = {"effort": effort}
+            return effort_to_budget.get(effort, 5000)
+
+        # Legacy API: explicit budget_tokens.
+        thinking_budget = effort_to_budget.get(effort, 5000)
+        thinking_budget = max(thinking_budget, 1024)
+        if request.max_tokens and request.max_tokens >= 1024:
+            thinking_budget = min(thinking_budget, request.max_tokens)
+        else:
+            kwargs["max_tokens"] = int(thinking_budget * 1.5)
+        kwargs["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": thinking_budget,
+        }
+        return thinking_budget
+
+    @staticmethod
     def _convert_messages(messages: list[ChatMessage]) -> tuple[str | None, list[dict[str, str]]]:
         """
         Convert OpenAI-style messages to Anthropic format.
@@ -159,22 +216,7 @@ class AnthropicClient(ConnectionClient):
                 "medium": 5000,
                 "high": 10000,
             }
-            
-            effort = (request.reasoning_effort or "medium").lower()
-            thinking_budget = effort_to_budget.get(effort, 5000)
-            
-            # Ensure thinking budget meets minimum requirement of 1024
-            thinking_budget = max(thinking_budget, 1024)
-            
-            if request.max_tokens and request.max_tokens >= 1024:
-                thinking_budget = min(thinking_budget, request.max_tokens)
-            else:
-                kwargs["max_tokens"] = int(thinking_budget * 1.5)
-            
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget
-            }
+            self._apply_thinking_kwargs(request, kwargs, effort_to_budget)
         
         if system_message:
             kwargs["system"] = system_message
@@ -246,22 +288,7 @@ class AnthropicClient(ConnectionClient):
                 "medium": 5000,
                 "high": 16000,
             }
-            
-            effort = (request.reasoning_effort or "medium").lower()
-            thinking_budget = effort_to_budget.get(effort, 5000)
-            
-            # Ensure thinking budget meets minimum requirement of 1024
-            thinking_budget = max(thinking_budget, 1024)
-            
-            if request.max_tokens and request.max_tokens >= 1024:
-                thinking_budget = min(thinking_budget, request.max_tokens)
-            else:
-                kwargs["max_tokens"] = int(thinking_budget * 1.5)
-            
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget
-            }
+            thinking_budget = self._apply_thinking_kwargs(request, kwargs, effort_to_budget)
         
         if system_message:
             kwargs["system"] = system_message
