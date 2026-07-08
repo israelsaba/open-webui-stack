@@ -240,27 +240,55 @@ class GeminiClient(ConnectionClient):
             raise
 
     @staticmethod
-    def _convert_messages_to_turns(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    def _convert_messages_to_steps(messages: list[ChatMessage]) -> list[dict[str, Any]]:
         """
-        Convert messages to Interaction turns (dicts).
-        
+        Convert messages to Interaction steps (dicts).
+
+        The Interactions API moved from the turn-based schema
+        (``{"role": ..., "content": <str>}``) to a steps-based schema. Each
+        step is ``{"type": "user_input"|"model_output", "content": [ContentParam]}``
+        where each content item is a typed part, e.g. ``{"type": "text", "text": ...}``.
+        Sending the old turn_list now 400s with:
+        ``When using the steps-based API version, use step_list input format
+        instead of turn_list.``
+
         Args:
             messages: List of ChatMessage objects
-            
+
         Returns:
-            List of TurnParam dicts for Interactions API
+            List of StepParam dicts for the Interactions API
         """
-        turns = []
+        steps: list[dict[str, Any]] = []
         for msg in messages:
             if msg.role == "system":
                 continue
-            
-            role = "user" if msg.role == "user" else "model"
-            turns.append({
-                "role": role,
-                "content": msg.content
+
+            step_type = "user_input" if msg.role == "user" else "model_output"
+            steps.append({
+                "type": step_type,
+                "content": [{"type": "text", "text": msg.content}],
             })
-        return turns
+        return steps
+
+    @staticmethod
+    def _extract_output_text(interaction: Any) -> list[str]:
+        """
+        Pull assistant-visible text out of a completed interaction.
+
+        The steps-based API returns the final answer under
+        ``interaction.steps`` as ``model_output`` steps whose ``content`` is a
+        list of typed parts; we collect the ``text`` parts. (The old schema
+        exposed a flat ``interaction.outputs`` list, which no longer exists.)
+        """
+        texts: list[str] = []
+        steps = getattr(interaction, "steps", None) or []
+        for step in steps:
+            if getattr(step, "type", None) != "model_output":
+                continue
+            for part in (getattr(step, "content", None) or []):
+                if getattr(part, "type", None) == "text" and getattr(part, "text", None):
+                    texts.append(part.text)
+        return texts
 
 
     async def _create_interaction_stream(
@@ -273,16 +301,7 @@ class GeminiClient(ConnectionClient):
         created = int(time.time())
         
         system_message = self._extract_system_message(request.messages)
-        input_turns = self._convert_messages_to_turns(request.messages)
-        
-        if system_message:
-            if input_turns and input_turns[0]["role"] == "user":
-                input_turns[0]["content"] = f"System Instruction: {system_message}\n\n{input_turns[0]['content']}"
-            else:
-                input_turns.insert(0, {
-                    "role": "user",
-                    "content": f"System Instruction: {system_message}"
-                })
+        input_steps = self._convert_messages_to_steps(request.messages)
         
         interaction_id = previous_completion.interaction_id if previous_completion and previous_completion.interaction_id else None
         last_event_id = None
@@ -298,7 +317,7 @@ class GeminiClient(ConnectionClient):
             
             kwargs = {
                 "agent": request.model,
-                "input": input_turns,
+                "input": input_steps,
                 "stream": True,
                 "background": True,
                 "agent_config":{
@@ -306,6 +325,8 @@ class GeminiClient(ConnectionClient):
                     "thinking_summaries": "auto"
                 }
             }
+            if system_message:
+                kwargs["system_instruction"] = system_message
             
             stream = await self.client.aio.interactions.create(**kwargs)
 
@@ -333,7 +354,7 @@ class GeminiClient(ConnectionClient):
                 
                 logger.debug(f"interaction event: {event}")
                 
-                if event.event_type == "interaction.start":
+                if event.event_type == "interaction.created":
                     interaction_id = event.interaction.id
                     logger.info(f"Interaction ID is: {interaction_id}, md5_hash: {md5_hash}")
                     
@@ -353,13 +374,24 @@ class GeminiClient(ConnectionClient):
                 if event.event_id:
                     last_event_id = event.event_id
                 
-                if event.event_type == "content.delta":
-                    if event.delta.type == "text":
-                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'content':event.delta.text}, finish_reason=None)]).model_dump_json()}\n\n"
-                    elif event.delta.type == "thought_summary":
-                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': event.delta.content.text}, finish_reason=None)]).model_dump_json()}\n\n"
+                if event.event_type == "step.delta":
+                    delta = event.delta
+                    delta_type = getattr(delta, "type", None)
+                    if delta_type == "text":
+                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'content': delta.text}, finish_reason=None)]).model_dump_json()}\n\n"
+                    elif delta_type == "thought_summary":
+                        summary_text = delta.content.text if getattr(delta, "content", None) and getattr(delta.content, "text", None) else ""
+                        if summary_text:
+                            yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'reasoning_content': summary_text}, finish_reason=None)]).model_dump_json()}\n\n"
                 
-                if event.event_type in ['interaction.complete', 'error']:
+                if event.event_type == "interaction.completed":
+                    # Text already arrived via step.delta events; just close the stream.
+                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={}, finish_reason='stop')]).model_dump_json()}\n\n"
+                    is_complete = True
+                
+                if event.event_type == "error":
+                    err = getattr(event, "error", None)
+                    logger.error(f"Interaction stream error event: {err}")
                     is_complete = True
                 
                 time.time()
@@ -378,7 +410,9 @@ class GeminiClient(ConnectionClient):
                             "requires_action": "requires action",
                             "completed": "completed",
                             "failed": "failed",
-                            "cancelled": "cancelled"
+                            "cancelled": "cancelled",
+                            "incomplete": "incomplete",
+                            "budget_exceeded": "budget exceeded",
                         }
                         
                         
@@ -433,11 +467,10 @@ class GeminiClient(ConnectionClient):
                                 stream_iter = None
                                 continue
 
-                        elif status in ["completed", "failed", "cancelled"]:
-                            if status == "completed" and hasattr(interaction_status, 'outputs') and interaction_status.outputs:
-                                for output in interaction_status.outputs:
-                                    if output.type == "text" and hasattr(output, 'text') and output.text:
-                                        yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'content': output.text}, finish_reason=None)]).model_dump_json()}\n\n"
+                        elif status in ["completed", "failed", "cancelled", "incomplete", "budget_exceeded"]:
+                            if status in ("completed", "incomplete"):
+                                for text in self._extract_output_text(interaction_status):
+                                    yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={'content': text}, finish_reason=None)]).model_dump_json()}\n\n"
                             
                             yield f"data: {ChatCompletionChunk(id=completion_id, created=created, model=request.model, choices=[ChatCompletionStreamChoice(index=0, delta={}, finish_reason='stop')]).model_dump_json()}\n\n"
                             is_complete = True
