@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import sqlite3
 from datetime import datetime
@@ -99,23 +100,100 @@ class AnthropicClient(ConnectionClient):
     @staticmethod
     def _supports_extended_thinking(model: str) -> bool:
         """
-        Check if a model supports extended thinking.
-        
-        Models that support extended thinking:
-        - claude-3-7-sonnet and newer Sonnet models
-        - claude-4+ models (Opus, Sonnet)
+        Check whether a model gets an extended-thinking block at all.
+
+        This gate decides *whether* thinking is applied, not *how* (legacy
+        vs adaptive — see ``_uses_adaptive_thinking``). It intentionally
+        preserves today's working behavior:
+        - Sonnet: claude-3-7-sonnet and claude-sonnet-4-x get thinking;
+          newer/other Sonnet (e.g. claude-sonnet-5) do NOT — they work today
+          without a thinking block and must stay that way.
+        - Opus: any claude-opus-4 and every newer Opus release (5.x, ...)
+          get thinking. Future Opus launches are covered without a code
+          change.
+        - Anything else (e.g. Haiku) is unchanged: no thinking block.
         """
-        model_lower = model.lower()
-        
-        if "sonnet" in model_lower:
-            if "3-7" in model_lower or "3.7" in model_lower:
+        m = model.lower().replace(".", "-")
+
+        if "sonnet" in m:
+            if "3-7" in m:
                 return True
-        
-        if any(prefix in model_lower for prefix in ["claude-4", "claude-opus-4", "claude-sonnet-4"]):
+            if re.search(r"sonnet-4(?:-|$)", m):
+                return True
+            return False
+
+        opus = re.search(r"opus-(\d+)", m)
+        if opus and int(opus.group(1)) >= 4:
             return True
-        
+
         return False
     
+    @staticmethod
+    def _uses_adaptive_thinking(model: str) -> bool:
+        """
+        For a thinking-capable model, decide the control API to use.
+
+        Anthropic dropped the legacy ``thinking.type=enabled`` +
+        ``budget_tokens`` control starting with Opus 4.7. Those models 400
+        with ``"thinking.type.enabled" is not supported`` and instead expect
+        ``thinking.type=adaptive`` plus ``output_config.effort``.
+
+        Rule (only consulted when ``_supports_extended_thinking`` is True):
+        - Sonnet stays on the legacy/current path forever — its models work
+          today and must not change.
+        - Opus is version-gated: legacy through 4.6, adaptive for 4.7 and
+          EVERY newer release (4.9, 5.x, ...). Plain ``claude-opus-4`` with
+          no minor is treated as legacy (matches current behavior).
+        - Any other thinking-capable model we did not map explicitly defaults
+          to the new adaptive API, so future Anthropic families following the
+          new rule work without a code change.
+        """
+        m = model.lower().replace(".", "-")
+
+        if "sonnet" in m:
+            return False
+
+        match = re.search(r"opus-(\d+)(?:-(\d+))?", m)
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2)) if match.group(2) else 0
+            return (major, minor) > (4, 6)
+
+        return True
+
+    @staticmethod
+    def _apply_thinking_kwargs(
+        request: "ChatCompletionRequest",
+        kwargs: dict[str, Any],
+        effort_to_budget: dict[str, int],
+    ) -> int:
+        """
+        Populate ``kwargs`` with the correct thinking controls for the model.
+
+        Returns the resolved thinking budget (0 when not applicable), used only
+        for human-facing status strings. For adaptive-thinking models the
+        budget is informational; Anthropic sizes thinking from ``effort``.
+        """
+        effort = (request.reasoning_effort or "medium").lower()
+
+        if AnthropicClient._uses_adaptive_thinking(request.model):
+            kwargs["thinking"] = {"type": "adaptive"}
+            extra_body = kwargs.setdefault("extra_body", {})
+            extra_body["output_config"] = {"effort": effort}
+            return effort_to_budget.get(effort, 5000)
+
+        thinking_budget = effort_to_budget.get(effort, 5000)
+        thinking_budget = max(thinking_budget, 1024)
+        if request.max_tokens and request.max_tokens >= 1024:
+            thinking_budget = min(thinking_budget, request.max_tokens)
+        else:
+            kwargs["max_tokens"] = int(thinking_budget * 1.5)
+        kwargs["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": thinking_budget,
+        }
+        return thinking_budget
+
     @staticmethod
     def _convert_messages(messages: list[ChatMessage]) -> tuple[str | None, list[dict[str, str]]]:
         """
@@ -159,22 +237,7 @@ class AnthropicClient(ConnectionClient):
                 "medium": 5000,
                 "high": 10000,
             }
-            
-            effort = (request.reasoning_effort or "medium").lower()
-            thinking_budget = effort_to_budget.get(effort, 5000)
-            
-            # Ensure thinking budget meets minimum requirement of 1024
-            thinking_budget = max(thinking_budget, 1024)
-            
-            if request.max_tokens and request.max_tokens >= 1024:
-                thinking_budget = min(thinking_budget, request.max_tokens)
-            else:
-                kwargs["max_tokens"] = int(thinking_budget * 1.5)
-            
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget
-            }
+            self._apply_thinking_kwargs(request, kwargs, effort_to_budget)
         
         if system_message:
             kwargs["system"] = system_message
@@ -246,22 +309,7 @@ class AnthropicClient(ConnectionClient):
                 "medium": 5000,
                 "high": 16000,
             }
-            
-            effort = (request.reasoning_effort or "medium").lower()
-            thinking_budget = effort_to_budget.get(effort, 5000)
-            
-            # Ensure thinking budget meets minimum requirement of 1024
-            thinking_budget = max(thinking_budget, 1024)
-            
-            if request.max_tokens and request.max_tokens >= 1024:
-                thinking_budget = min(thinking_budget, request.max_tokens)
-            else:
-                kwargs["max_tokens"] = int(thinking_budget * 1.5)
-            
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget
-            }
+            thinking_budget = self._apply_thinking_kwargs(request, kwargs, effort_to_budget)
         
         if system_message:
             kwargs["system"] = system_message
