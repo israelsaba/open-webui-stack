@@ -55,19 +55,19 @@ def api_key() -> str:
 @pytest.fixture(scope="session")
 def anthropic_api_key() -> str:
     """Get Anthropic API key from environment."""
-    return os.getenv("SDK__OPENROUTER_API_KEY", "")
+    return os.getenv("SDK__ANTHROPIC_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
 def google_api_key() -> str:
     """Get Google API key from environment."""
-    return os.getenv("SDK__OPENROUTER_API_KEY", "")
+    return os.getenv("SDK__GOOGLE_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
 def grok_api_key() -> str:
     """Get Grok API key from environment."""
-    return os.getenv("SDK__OPENROUTER_API_KEY", "")
+    return os.getenv("SDK__GROK_API_KEY", "")
 
 
 @pytest.fixture(scope="session")

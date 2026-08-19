@@ -27,4 +27,4 @@ preferences through `/v1/chat/completions`.
 - Keep tool execution outside this service.
 - Do not log credentials, prompts, tool arguments, or full provider responses by default.
 - Run `make test` and `make lint` before submitting changes.
-- Use direct provider keys and base URLs; OpenRouter is not required by the runtime contract.
+- Use direct provider keys and base URLs; hosted routing services are not part of the runtime contract.

@@ -92,4 +92,25 @@ Useful endpoints:
 - Keep `.env` out of version control and never log API keys.
 - Do not expose port `8060` publicly without authentication and TLS.
 - Use provider spending limits and explicit provider configuration for production.
+
+## Open-Source Project
+
+This project is maintained in the open. Contributions are welcome through pull
+requests. Before opening one, read [CONTRIBUTING.md](CONTRIBUTING.md) and run
+the documented checks. Report reproducible bugs, installation problems,
+compatibility reports, and focused proposals through GitHub Issues. Do not post
+secrets, private prompts, provider responses, or vulnerability details publicly;
+follow [SECURITY.md](SECURITY.md) for security reports.
+
+Stable versions are published as immutable `vMAJOR.MINOR.PATCH` tags with
+release notes on GitHub. The repository's provider APIs and OpenAI-compatible
+request behavior are external contracts; their official documentation is the
+source of truth when behavior changes.
+
+## Sources
+
+- [OpenAI API reference](https://platform.openai.com/docs/api-reference)
+- [Anthropic OpenAI compatibility](https://docs.anthropic.com/en/api/openai-sdk)
+- [Google Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)
+- [xAI API documentation](https://docs.x.ai/docs)
 - Pin and review image and dependency updates before deploying them.

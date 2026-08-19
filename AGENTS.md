@@ -18,7 +18,7 @@ interface is an OpenAI-compatible boundary with direct provider connections.
 
 ```bash
 cp .env.example .env
-# Set SDK__OPENROUTER_API_KEY without printing it
+# Set one or more direct provider keys without printing them
 make setup
 make test
 make lint
@@ -34,6 +34,6 @@ Compose network unless explicitly exposed. In production, set
 
 - Never commit `.env`, API keys, tokens, or provider responses.
 - Do not expose port `8060` publicly without authentication and TLS.
-- Do not reintroduce hardcoded model lists or direct provider clients.
+- Do not reintroduce hardcoded model lists or hosted routing dependencies.
 - Preserve unrelated worktree changes and avoid destructive git commands.
 - Run tests in mock mode; use real provider calls only when explicitly needed.
