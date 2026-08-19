@@ -312,7 +312,7 @@ docker compose up -d
 docker compose ps
 ```
 
-You should see three services running: `open-webui`, `sdk-interface`, and `watchtower`.
+You should see two services running: `open-webui` and `sdk-interface`.
 
 #### Step 4: Access Your AI Hub
 
@@ -374,7 +374,6 @@ You should see:
 NAME            STATUS
 open-webui      Up (healthy)
 sdk-interface   Up (healthy)
-watchtower      Up (healthy)
 ```
 
 **If sdk-interface is not running:**
@@ -802,7 +801,7 @@ See `sdk-interface/.env.example` for complete reference.
 
 - `ANTHROPIC_API_KEY` - For Claude models
 - `GROK_API_KEY` - For Grok models
-- `API_KEYS` - Bearer token auth (format: `user:token;user2:token2`)
+- `SDK__API_KEYS` - Bearer token auth (required in production; format: `user:token;user2:token2`)
 - `LOG_LEVEL` - debug/info/warning/error (default: info)
 - `INTERACTION_POLL_INTERVAL` - Deep Research polling (default: 30s)
 

@@ -133,13 +133,12 @@ docker compose ps
 NAME            STATUS                   PORTS
 open-webui      Up (healthy)             0.0.0.0:8090->8080/tcp
 sdk-interface   Up (healthy)             8060/tcp
-watchtower      Up (healthy)             8080/tcp
 ```
 
 **4.3 Health Checks**
 ```bash
-# Check SDK interface
-curl -f http://localhost:8060/health || echo "SDK interface not ready"
+# Check SDK interface from inside the Compose network
+docker compose exec sdk-interface python -c "import urllib.request; urllib.request.urlopen('http://localhost:8060/health')" || echo "SDK interface not ready"
 
 # Check Open WebUI
 curl -f http://localhost:8090/ || echo "Open WebUI not ready"
@@ -481,7 +480,6 @@ After deployment, report using this format:
 **Services Running:**
 - open-webui: [UP/DOWN]
 - sdk-interface: [UP/DOWN]
-- watchtower: [UP/DOWN]
 
 **Health Checks:**
 - Models endpoint: [PASS/FAIL]

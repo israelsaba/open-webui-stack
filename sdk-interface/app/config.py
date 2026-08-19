@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     google_api_key: SecretStr | None = None
     grok_api_key: SecretStr | None = None
     api_keys: str = ""
+    environment: str = "DEV"
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/db.sqlite3")
     
     # CORS settings
-    cors_origins: str = "*"  # Comma-separated list of allowed origins, or "*" for all
+    cors_origins: str = ""  # Comma-separated list of allowed origins
     
     interaction_poll_interval: int = 30
     

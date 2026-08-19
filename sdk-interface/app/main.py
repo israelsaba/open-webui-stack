@@ -88,6 +88,11 @@ else:
 
 # Configure authentication
 valid_tokens = parse_api_keys(settings.api_keys)
+if settings.environment.upper() in {"PROD", "PRODUCTION"}:
+    if not valid_tokens:
+        raise RuntimeError("SDK__API_KEYS is required when SDK__ENVIRONMENT is PROD")
+    if not cors_origins or "*" in cors_origins:
+        raise RuntimeError("SDK__CORS_ORIGINS must contain explicit origins when SDK__ENVIRONMENT is PROD")
 if valid_tokens:
     app.add_middleware(BearerTokenMiddleware, valid_tokens=valid_tokens)
     logger.debug(f"Bearer token authentication enabled with {len(valid_tokens)} valid tokens")

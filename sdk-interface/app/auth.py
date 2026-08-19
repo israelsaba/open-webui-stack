@@ -114,7 +114,7 @@ def parse_api_keys(api_keys_string: str) -> dict[str, str]:
             continue
             
         if ":" not in pair:
-            logger.warning(f"Invalid API key format (missing colon): {pair}")
+            logger.warning("Invalid API key format (missing colon)")
             continue
         
         username, token = pair.split(":", 1)
@@ -122,7 +122,7 @@ def parse_api_keys(api_keys_string: str) -> dict[str, str]:
         token = token.strip()
         
         if not username or not token:
-            logger.warning(f"Invalid API key format (empty username or token): {pair}")
+            logger.warning("Invalid API key format (empty username or token)")
             continue
         
         if not token.startswith("op_wui_"):

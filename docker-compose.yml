@@ -7,7 +7,7 @@ networks:
 
 volumes:
   open-webui:
-    external: ${IS_EXTERNAL_OI_VOLUME}
+    external: ${IS_EXTERNAL_OI_VOLUME:-false}
 
 services:
   sdk-interface:
@@ -22,11 +22,9 @@ services:
     env_file:
       - path: .env
         required: true
-    ports:
-      - ${SDK_PORTS}
     environment:
       HOST: "0.0.0.0"
-      PORT: ${SDK_PORTS:-8060}
+      PORT: ${SDK_PORT:-8060}
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       PYTHONPATH: "/app"
     restart: unless-stopped
@@ -46,7 +44,7 @@ services:
       - open-webui-net
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:v0.11.0
     container_name: open-webui
     ports:
       - "8090:8080"
@@ -63,21 +61,5 @@ services:
     depends_on:
       sdk-interface:
         condition: service_healthy
-    networks:
-      - open-webui-net
-
-  watchtower:
-    image: nickfedor/watchtower:latest
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_INCLUDE_STOPPED: "false"
-      WATCHTOWER_SCHEDULE: "0 0 2 * * *" # 2 AM daily
-    command: open-webui
-    restart: unless-stopped
-    depends_on:
-      - open-webui
     networks:
       - open-webui-net
