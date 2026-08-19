@@ -5,7 +5,7 @@ Tests for /v1/models endpoint.
 from fastapi.testclient import TestClient
 
 from app.models import ChatCompletionRequest
-from app.openrouter_client import OpenRouterClient
+from app.provider_gateway import ProviderGateway
 
 
 def test_list_models(client: TestClient):
@@ -49,12 +49,12 @@ def test_agentic_request_fields_are_forwarded():
             "tool_choice": "auto",
             "parallel_tool_calls": True,
             "response_format": {"type": "json_object"},
-            "provider": {"order": ["Anthropic", "Google"], "allow_fallbacks": True},
+            "provider": "anthropic",
         }
     )
 
-    kwargs = OpenRouterClient._request_kwargs(request, stream=False)
+    kwargs = ProviderGateway._request_kwargs(request, stream=False)
 
     assert kwargs["tools"] == request.tools
-    assert kwargs["provider"] == request.provider
+    assert request.provider == "anthropic"
     assert kwargs["parallel_tool_calls"] is True

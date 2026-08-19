@@ -45,8 +45,8 @@ for h in logging.getLogger().handlers:
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="OpenRouter to OpenAI API Bridge",
-    description="OpenAI-compatible API with OpenRouter model routing",
+    title="Direct Provider OpenAI API Gateway",
+    description="OpenAI-compatible API with direct provider connections",
     version="2.0.0",
 )
 
@@ -91,7 +91,7 @@ _model_cache: set[str] | None = None
 async def root() -> dict[str, str]:
     """Root endpoint with API information."""
     return {
-        "message": "OpenRouter to OpenAI API Bridge",
+        "message": "Direct Provider OpenAI API Gateway",
         "docs": "/docs",
         "models": "/v1/models",
     }
@@ -99,13 +99,13 @@ async def root() -> dict[str, str]:
 
 @app.get("/v1/models")
 async def list_models() -> ModelsResponse:
-    """List the live OpenRouter model catalog in OpenAI format."""
+    """List the live model catalogs from configured providers."""
 
     all_models = await deps.list_models()
 
     if not all_models:
         raise HTTPException(
-            status_code=500, detail="Failed to fetch models from OpenRouter"
+            status_code=500, detail="Failed to fetch models from configured providers"
         )
 
     return all_models
@@ -117,7 +117,7 @@ async def create_chat_completion(
     client: Annotated[object, Depends(deps.get_client)],
 ) -> ChatCompletionResponse | StreamingResponse:
     """
-    Create a chat completion using OpenRouter's provider routing layer.
+    Create a chat completion using the selected direct provider.
 
     Supports both streaming and non-streaming responses.
     """

@@ -22,7 +22,7 @@ async def main() -> None:
         model_ids = {item["id"] for item in models.json()["data"]}
         print(f"Loaded {len(model_ids)} models")
         if model not in model_ids:
-            print(f"Warning: {model} is not in the current OpenRouter catalog")
+            print(f"Warning: {model} is not in the current provider catalog")
 
         response = await client.post(
             "/v1/chat/completions",

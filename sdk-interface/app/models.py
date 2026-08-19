@@ -34,9 +34,9 @@ class ChatCompletionRequest(BaseModel):
     tool_choice: str | dict[str, Any] | None = None
     parallel_tool_calls: bool | None = None
     response_format: dict[str, Any] | None = None
-    provider: dict[str, Any] | None = Field(
+    provider: str | None = Field(
         default=None,
-        description="OpenRouter provider routing preferences and fallbacks",
+        description="Optional local provider route: openai, anthropic, google, or xai",
     )
 
 

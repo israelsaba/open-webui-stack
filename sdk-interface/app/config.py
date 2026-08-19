@@ -22,10 +22,14 @@ class Settings(BaseSettings):
         env_prefix="SDK__",
     )
 
-    openrouter_api_key: SecretStr | None = None
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_site_url: str = "http://localhost:8090"
-    openrouter_site_name: str = "Open WebUI Stack"
+    openai_api_key: SecretStr | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    anthropic_api_key: SecretStr | None = None
+    anthropic_base_url: str = "https://api.anthropic.com/v1"
+    google_api_key: SecretStr | None = None
+    google_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    grok_api_key: SecretStr | None = None
+    grok_base_url: str = "https://api.x.ai/v1"
     models_cache_ttl: int = 60
     api_keys: str = ""
     environment: str = "DEV"

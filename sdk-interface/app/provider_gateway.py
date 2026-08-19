@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -20,35 +22,39 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-class OpenRouterClient:
-    """OpenAI-compatible gateway for OpenRouter's provider routing layer."""
+@dataclass(frozen=True)
+class Provider:
+    name: str
+    client: AsyncOpenAI
+
+
+class ProviderGateway:
+    """Self-hosted OpenAI-compatible gateway for direct provider APIs."""
 
     def __init__(self) -> None:
-        if not settings.openrouter_api_key:
-            logger.warning("OpenRouter API key not configured")
-            self.client = None
-        else:
-            self.client = AsyncOpenAI(
-                api_key=settings.openrouter_api_key.get_secret_value(),
-                base_url=settings.openrouter_base_url,
-                default_headers={
-                    "HTTP-Referer": settings.openrouter_site_url,
-                    "X-Title": settings.openrouter_site_name,
-                },
-            )
+        self.providers = tuple(self._configured_providers())
         self._models: tuple[float, list[ModelInfo]] | None = None
-
-    def _require_client(self) -> AsyncOpenAI:
-        if self.client is None:
-            raise RuntimeError("SDK__OPENROUTER_API_KEY is not configured")
-        return self.client
+        self._routes: dict[str, Provider] = {}
 
     @staticmethod
-    def _owner(model_id: str) -> str:
-        return model_id.split("/", 1)[0] if "/" in model_id else "openrouter"
+    def _configured_providers() -> list[Provider]:
+        configs = (
+            ("openai", settings.openai_api_key, settings.openai_base_url),
+            ("anthropic", settings.anthropic_api_key, settings.anthropic_base_url),
+            ("google", settings.google_api_key, settings.google_base_url),
+            ("xai", settings.grok_api_key, settings.grok_base_url),
+        )
+        return [
+            Provider(
+                name=name,
+                client=AsyncOpenAI(api_key=key.get_secret_value(), base_url=base_url),
+            )
+            for name, key, base_url in configs
+            if key
+        ]
 
     async def list_models(self, *, force_refresh: bool = False) -> list[ModelInfo]:
-        """Return OpenRouter's live catalog, cached only for one minute."""
+        """Fetch models from every configured provider without a hardcoded list."""
         now = time.monotonic()
         if (
             not force_refresh
@@ -56,15 +62,47 @@ class OpenRouterClient:
             and now - self._models[0] < settings.models_cache_ttl
         ):
             return self._models[1]
+        if not self.providers:
+            raise RuntimeError("No AI provider API keys are configured")
 
-        response = await self._require_client().models.list()
-        models = [
-            ModelInfo(id=model.id, owned_by=self._owner(model.id))
-            for model in response.data
-        ]
+        results = await asyncio.gather(
+            *(self._list_provider_models(provider) for provider in self.providers),
+            return_exceptions=True,
+        )
+        models: list[ModelInfo] = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Provider model listing failed: %s", result)
+                continue
+            models.extend(result)
+        if not models:
+            raise RuntimeError("No configured provider returned models")
         self._models = (now, models)
-        logger.info("Loaded %d models from OpenRouter", len(models))
         return models
+
+    async def _list_provider_models(self, provider: Provider) -> list[ModelInfo]:
+        response = await provider.client.models.list()
+        models = [
+            ModelInfo(id=model.id, owned_by=provider.name) for model in response.data
+        ]
+        self._routes.update({model.id.lower(): provider for model in models})
+        logger.info("Loaded %d models from %s", len(models), provider.name)
+        return models
+
+    async def get_client(self, request: ChatCompletionRequest) -> Provider:
+        if request.provider:
+            for provider in self.providers:
+                if provider.name == request.provider.lower():
+                    return provider
+            raise ValueError(f"Provider {request.provider!r} is not configured")
+        route = self._routes.get(request.model.lower())
+        if route:
+            return route
+        await self.list_models(force_refresh=True)
+        route = self._routes.get(request.model.lower())
+        if not route:
+            raise ValueError(f"Model {request.model} not found in configured providers")
+        return route
 
     @staticmethod
     def _request_kwargs(
@@ -86,7 +124,6 @@ class OpenRouterClient:
             "tool_choice",
             "parallel_tool_calls",
             "response_format",
-            "provider",
         ):
             value = getattr(request, field, None)
             if value is not None:
@@ -98,11 +135,11 @@ class OpenRouterClient:
     async def create_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
-        response = await self._require_client().chat.completions.create(
+        provider = await self.get_client(request)
+        response = await provider.client.chat.completions.create(
             **self._request_kwargs(request, stream=False)
         )
         choice = response.choices[0]
-        message = choice.message.model_dump(exclude_none=True)
         usage = response.usage
         return ChatCompletionResponse(
             id=response.id,
@@ -111,7 +148,9 @@ class OpenRouterClient:
             choices=[
                 ChatCompletionChoice(
                     index=choice.index,
-                    message=ChatMessage.model_validate(message),
+                    message=ChatMessage.model_validate(
+                        choice.message.model_dump(exclude_none=True)
+                    ),
                     finish_reason=choice.finish_reason,
                 )
             ],
@@ -125,7 +164,8 @@ class OpenRouterClient:
     async def create_stream_completion(
         self, request: ChatCompletionRequest
     ) -> AsyncIterator[str]:
-        stream = await self._require_client().chat.completions.create(
+        provider = await self.get_client(request)
+        stream = await provider.client.chat.completions.create(
             **self._request_kwargs(request, stream=True)
         )
         async for chunk in stream:
@@ -151,4 +191,4 @@ class OpenRouterClient:
         yield "data: [DONE]\n\n"
 
 
-openrouter_client = OpenRouterClient()
+provider_gateway = ProviderGateway()

@@ -1,16 +1,16 @@
 # Autonomous Agent Guide
 
 This repository deploys a local/self-hosted Open WebUI stack. The SDK
-interface is an OpenAI-compatible boundary backed by OpenRouter.
+interface is an OpenAI-compatible boundary with direct provider connections.
 
 ## Runtime Contract
 
-- Configure `SDK__OPENROUTER_API_KEY` in the root `.env`.
-- Models are fetched automatically from `GET /v1/models` and use OpenRouter
-  IDs such as `anthropic/claude-sonnet-4.5`.
+- Configure one or more direct provider keys in the root `.env`.
+- Models are fetched automatically from every configured provider via
+  `GET /v1/models`; no model list is hardcoded.
 - Chat requests and streams are served at `/v1/chat/completions`.
 - Tools, tool calls, reasoning controls, JSON output, multimodal content, and
-  OpenRouter provider preferences are forwarded for agent runtimes.
+  local provider selection are forwarded for agent runtimes.
 - This service does not run an agent loop or execute tools. The calling agent
   owns state, permissions, retries, and tool execution.
 

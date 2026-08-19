@@ -1,20 +1,20 @@
 # Open WebUI Stack
 
 Self-hosted Open WebUI backed by a small OpenAI-compatible SDK interface. The
-interface uses [OpenRouter](https://openrouter.ai) as the single gateway for
-model discovery, provider routing, fallbacks, and chat completions.
+interface connects directly to configured provider APIs through their shared
+OpenAI-compatible transport.
 
 ## What This Provides
 
-- Live model listings from OpenRouter. No provider or model allow-list is hardcoded.
-- One gateway for Anthropic, Google, xAI, and other OpenRouter-supported models.
+- Live model listings from every configured provider. No provider or model allow-list is hardcoded.
+- One gateway for OpenAI, Anthropic, Google, and xAI models.
 - OpenAI-compatible chat completions, including streaming.
-- Agent-ready requests: tools, tool calls, parallel tool calls, JSON response formats, multimodal message content, reasoning effort, and OpenRouter provider preferences are passed through.
+- Agent-ready requests: tools, tool calls, parallel tool calls, JSON response formats, multimodal message content, reasoning effort, and local provider selection are passed through.
 - Open WebUI configured to use the SDK interface over the internal Compose network.
 - Local bearer-token authentication and production CORS safeguards.
 
-OpenRouter model IDs use the `provider/model` form, for example
-`anthropic/claude-sonnet-4.5` or `google/gemini-2.5-pro`.
+Model IDs come directly from each configured provider. The `owned_by` field in
+`/v1/models` identifies which provider supplied each model.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ Requirements: Docker and Docker Compose.
 
 ```bash
 cp .env.example .env
-# Set SDK__OPENROUTER_API_KEY in .env
+# Set at least one direct provider key in .env
 docker volume create open-webui
 docker compose up -d --build
 ```
@@ -36,10 +36,10 @@ to `sdk-interface` or run it directly with `make run`.
 The important variables are:
 
 ```dotenv
-SDK__OPENROUTER_API_KEY=your-key
-SDK__OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-SDK__OPENROUTER_SITE_URL=http://localhost:8090
-SDK__OPENROUTER_SITE_NAME=Open WebUI Stack
+SDK__OPENAI_API_KEY=your-key
+SDK__ANTHROPIC_API_KEY=your-key
+SDK__GOOGLE_API_KEY=your-key
+SDK__GROK_API_KEY=your-key
 SDK__MODELS_CACHE_TTL=60
 SDK__API_KEYS=
 SDK__CORS_ORIGINS=http://localhost:8090
@@ -51,21 +51,21 @@ OPENAI_API_KEYS=
 token in `OPENAI_API_KEYS` for Open WebUI. Production mode requires explicit
 CORS origins and at least one SDK token.
 
-OpenRouter can route or fail over providers per request. For example, an agent
-can send this OpenAI-compatible request:
+An agent can select a local provider explicitly, or select a model discovered
+from `/v1/models`:
 
 ```json
 {
-  "model": "anthropic/claude-sonnet-4.5",
+  "model": "claude-sonnet-4-6",
   "messages": [{"role": "user", "content": "Inspect this repository."}],
   "tools": [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}}],
-  "provider": {"order": ["Anthropic", "Google"], "allow_fallbacks": true}
+  "provider": "anthropic"
 }
 ```
 
 This keeps tool execution in the calling agent, which is the expected model for
-Claude Code, OpenCode, Hermes, and similar systems. The SDK is a transport and
-routing boundary, not an agent runtime with hidden state.
+Claude Code, OpenCode, Hermes, and similar systems. The SDK is a direct transport
+and model-discovery boundary, not an agent runtime with hidden state.
 
 ## Development
 
@@ -77,7 +77,7 @@ make up
 make logs-sdk
 ```
 
-Tests use mocked OpenRouter responses and do not spend API credits. Use
+Tests use mocked provider responses and do not spend API credits. Use
 `make test-real` only after configuring a real test environment.
 
 Useful endpoints:
@@ -91,5 +91,5 @@ Useful endpoints:
 
 - Keep `.env` out of version control and never log API keys.
 - Do not expose port `8060` publicly without authentication and TLS.
-- Use OpenRouter spending limits and provider restrictions for production.
+- Use provider spending limits and explicit provider configuration for production.
 - Pin and review image and dependency updates before deploying them.

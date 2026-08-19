@@ -24,7 +24,7 @@ elif env_path.exists():
 os.environ.setdefault("SDK__DB_PATH", ":memory:")  # In-memory SQLite for speed
 os.environ.setdefault("SDK__TEST_MODE", "mock")
 os.environ.setdefault("SDK__API_KEYS", "")  # Disable auth
-os.environ.setdefault("SDK__OPENROUTER_API_KEY", "test-openrouter-key")
+os.environ["SDK__OPENAI_API_KEY"] = "test-openai-key"
 os.environ.setdefault("SDK__LOG_LEVEL", "ERROR")  # Reduce logging overhead
 
 
@@ -72,7 +72,7 @@ def grok_api_key() -> str:
 
 @pytest.fixture(scope="session")
 def test_models() -> dict[str, str]:
-    """Test models represented by the OpenRouter catalog."""
+    """Test models represented by the provider catalogs."""
     return {
         "anthropic": os.getenv("SDK__TEST_MODEL", "anthropic/claude-sonnet-4.5"),
         "gemini": os.getenv("SDK__TEST_MODEL", "google/gemini-2.0-flash-001"),
@@ -227,26 +227,28 @@ def client() -> Generator[TestClient, None, None]:
 
     # Patch at import time before app loads. The production app has one
     # gateway client, so tests do not need provider SDKs or network access.
-    import app.openrouter_client
+    import app.provider_gateway
 
-    async def mock_openrouter_list_models(self):
+    async def mock_gateway_list_models(self):
         return _anthropic_models + _google_models + _xai_models
 
-    async def mock_openrouter_completion(self, request):
+    async def mock_gateway_completion(self, request):
         return _anthropic_response
 
-    async def mock_openrouter_streaming(self, request):
+    async def mock_gateway_streaming(self, request):
         import json
 
         yield f"data: {json.dumps(_anthropic_chunk.model_dump())}\n\n"
         yield "data: [DONE]\n\n"
 
-    app.openrouter_client.OpenRouterClient.list_models = mock_openrouter_list_models
-    app.openrouter_client.OpenRouterClient.create_completion = (
-        mock_openrouter_completion
-    )
-    app.openrouter_client.OpenRouterClient.create_stream_completion = (
-        mock_openrouter_streaming
+    async def mock_gateway_client(self, request):
+        return self.providers[0]
+
+    app.provider_gateway.ProviderGateway.list_models = mock_gateway_list_models
+    app.provider_gateway.ProviderGateway.get_client = mock_gateway_client
+    app.provider_gateway.ProviderGateway.create_completion = mock_gateway_completion
+    app.provider_gateway.ProviderGateway.create_stream_completion = (
+        mock_gateway_streaming
     )
 
     # Now import and create the app (it will use mocked methods)
