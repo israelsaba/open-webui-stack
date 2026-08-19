@@ -3,14 +3,8 @@ name: PR Checks
 on:
   push:
     branches: [main]
-    paths:
-      - 'sdk-interface/**'
-      - '.github/workflows/pr-checks.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'sdk-interface/**'
-      - '.github/workflows/test.yml'
 
 jobs:
   lint:
@@ -56,38 +50,12 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'sdk-interface/requirements-test.lock'
       
-      - name: Cache pytest results
-        id: pytest-cache
-        uses: actions/cache@v4.2.0
-        with:
-          path: |
-            sdk-interface/.pytest_cache
-            sdk-interface/.coverage
-            sdk-interface/htmlcov
-            sdk-interface/coverage.xml
-          key: pytest-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('sdk-interface/app/**', 'sdk-interface/tests/**', 'sdk-interface/requirements-test.lock') }}
-          restore-keys: |
-            pytest-${{ runner.os }}-py${{ matrix.python-version }}-
-      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip --quiet
           pip install -r requirements-test.lock --quiet
       
-      - name: Check if tests can be skipped
-        id: check-skip
-        run: |
-          # Check if we have a valid cached test result
-          if [ -f ".pytest_cache/v/cache/lastfailed" ] && [ "${{ steps.pytest-cache.outputs.cache-hit }}" == "true" ]; then
-            echo "Tests were previously successful and code hasn't changed"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "Need to run tests"
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-      
       - name: Run tests with coverage
-        if: steps.check-skip.outputs.skip != 'true'
         env:
           SDK__TEST_MODE: mock
         run: |
@@ -100,14 +68,7 @@ jobs:
             --cov-report=html \
             -m "not slow"
       
-      - name: Use cached test results
-        if: steps.check-skip.outputs.skip == 'true'
-        run: |
-          echo "✓ Using cached test results - no code changes detected"
-          echo "Tests previously passed with same code and dependencies"
-      
       - name: Upload coverage to Codecov
-        if: steps.check-skip.outputs.skip != 'true'
         uses: codecov/codecov-action@v4
         with:
           files: ./sdk-interface/coverage.xml
@@ -117,7 +78,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       
       - name: Upload coverage report as artifact
-        if: steps.check-skip.outputs.skip != 'true'
         uses: actions/upload-artifact@v4.5.0
         with:
           name: coverage-report-${{ matrix.python-version }}

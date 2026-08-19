@@ -53,6 +53,8 @@ services:
     environment:
       AUDIO_STT_ENGINE: "openai"
       RAG_EMBEDDING_ENGINE: "openai"
+      OPENAI_API_BASE_URLS: "${OPENAI_API_BASE_URLS:-http://sdk-interface:8060/v1}"
+      OPENAI_API_KEYS: "${OPENAI_API_KEYS:-}"
     volumes:
       - open-webui:/app/backend/data
     extra_hosts:

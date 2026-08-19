@@ -1,16 +1,17 @@
 import logging
-from pathlib import Path
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 logger = logging.getLogger(__name__)
+
 
 class Settings(BaseSettings):
     """Application settings with environment variable support.
-    
+
     Reads from SDK__ prefixed environment variables from root .env file.
     Falls back to non-prefixed vars for backwards compatibility.
     """
-    
+
     model_config = SettingsConfigDict(
         # Look for .env in parent directory (project root)
         env_file="../.env",
@@ -18,29 +19,32 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
         # SDK__ prefix is automatically stripped by pydantic when reading env vars
-        env_prefix="SDK__"
+        env_prefix="SDK__",
     )
-    
+
+    openai_api_key: SecretStr | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
     anthropic_api_key: SecretStr | None = None
+    anthropic_base_url: str = "https://api.anthropic.com/v1"
     google_api_key: SecretStr | None = None
+    google_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     grok_api_key: SecretStr | None = None
+    grok_base_url: str = "https://api.x.ai/v1"
+    models_cache_ttl: int = 60
     api_keys: str = ""
     environment: str = "DEV"
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
     detailed_request_logging: bool = False
-    migrations_path: Path = Path("migrations")
-    db_path: Path = Path("data/db.sqlite3")
-    
     # CORS settings
     cors_origins: str = ""  # Comma-separated list of allowed origins
-    
+
     interaction_poll_interval: int = 30
-    
+
     @field_validator("port", mode="before")
     @classmethod
-    def make_port(cls, v: str|int):
+    def make_port(cls, v: str | int):
         if isinstance(v, str):
             return int(v.split(":", 1)[0])
         return v
